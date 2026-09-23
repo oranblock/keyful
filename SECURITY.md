@@ -22,7 +22,15 @@ Report these only if you can escalate them past what's stated:
 - **Offline = unrecoverable if lost.** No cloud recovery, by design.
 - **Obfuscation is not encryption.** Anything relying on hiding the *format* (vs. the *key*) is understood to be non-security. Don't report format obfuscation as protection.
 - **`detekt` gate** in the release script is currently bypassed. Known.
+- **GF(2^20) arithmetic is not constant-time.** `gmul` has data-dependent branches. Given the threat model — 13 cells typed by hand over seconds on an air-gapped device — microarchitectural cache-timing attacks are not considered reachable. Constant-time reimplementation is welcome but low priority for this use.
+- **Memory zeroing is best-effort.** Secrets held as `ByteArray` are `fill(0)`-wiped on use and on background/idle, but the JVM/ART garbage collector may relocate objects and immutable `String` copies can linger in the heap. True erasure would require native (`mlock`/`memset_s`) handling. Treat RAM-wipe as defense-in-depth, not a guarantee.
 - **Not audited.** No third-party review has been done.
+
+## Mitigations already in place
+
+- **Custom in-app keypad** (`SecureBase32Keypad`) for cell entry, so shares are not typed through a third-party/system keyboard (Gboard sync, malicious IME, most accessibility snoops). Wired into the unlock screen.
+- **`FLAG_SECURE`** blocks screenshots, screen recording, and the recents-preview thumbnail of the unlock screen.
+- **No `INTERNET` permission** — no network exfiltration path exists.
 
 ## What is NOT in scope
 
