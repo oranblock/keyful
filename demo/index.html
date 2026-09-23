@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QVault 5 Mobile Demo</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap');
+    body { font-family: 'Inter', sans-serif; background-color: #0f172a; }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+  </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+
+  <!-- Mobile Device Frame -->
+  <div class="w-full max-w-md bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl overflow-hidden flex flex-col h-[780px]">
+    
+    <!-- Status Bar -->
+    <div class="bg-slate-950 px-6 py-2 flex justify-between items-center text-xs text-slate-400">
+      <span id="clock">09:41</span>
+      <div class="flex items-center space-x-2">
+        <i class="fa-solid fa-signal"></i>
+        <i class="fa-solid fa-wifi"></i>
+        <i class="fa-solid fa-battery-full"></i>
+      </div>
+    </div>
+
+    <!-- App Header -->
+    <div class="bg-slate-800/80 backdrop-blur border-b border-slate-700 px-5 py-3 flex justify-between items-center">
+      <div>
+        <h1 class="font-bold text-white text-base flex items-center gap-2">
+          <i class="fa-solid fa-shield-halved text-blue-400"></i> QVault 5 Mobile
+        </h1>
+        <p class="text-xs text-blue-400 mono" id="headerFp">Card: loading...</p>
+      </div>
+      <button onclick="newChallenge()" class="p-2 hover:bg-slate-700 rounded-lg text-slate-300 transition" title="New Challenge">
+        <i class="fa-solid fa-rotate"></i>
+      </button>
+    </div>
+
+    <!-- Main Scrollable Screen -->
+    <div class="flex-1 overflow-y-auto p-4 space-y-4" id="screenContainer">
+      
+      <!-- UNLOCK SCREEN TAB -->
+      <div id="tabUnlock" class="space-y-4">
+        <!-- Challenge Card Header -->
+        <div class="bg-gradient-to-br from-blue-900/50 to-indigo-900/30 border border-blue-700/50 rounded-2xl p-4 flex items-center gap-3 shadow-lg">
+          <div class="w-10 h-10 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center text-lg">
+            <i class="fa-solid fa-key"></i>
+          </div>
+          <div>
+            <h2 class="text-sm font-semibold text-white">Dynamic Challenge</h2>
+            <p class="text-xs text-blue-200/80">Read 15 cells from paper card (13 key + 2 checks)</p>
+          </div>
+        </div>
+
+        <!-- Verification Status Banner -->
+        <div id="statusBanner" class="hidden p-3 rounded-xl text-xs font-semibold flex items-center gap-2"></div>
+
+        <!-- Quick Demo Action Helpers -->
+        <div class="flex gap-2">
+          <button onclick="autoFillCorrect()" class="flex-1 py-1.5 px-3 bg-blue-600/30 hover:bg-blue-600/50 border border-blue-500/40 text-blue-300 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> Auto-Fill Correct
+          </button>
+          <button onclick="autoFillTypo()" class="flex-1 py-1.5 px-3 bg-amber-600/30 hover:bg-amber-600/50 border border-amber-500/40 text-amber-300 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5">
+            <i class="fa-solid fa-triangle-exclamation"></i> Simulate Typo
+          </button>
+        </div>
+
+        <!-- 15 Cells Interactive Grid -->
+        <div class="grid grid-cols-3 gap-2" id="cellsGrid"></div>
+      </div>
+
+      <!-- CARDS SLIPS TAB -->
+      <div id="tabCards" class="hidden space-y-3">
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl p-4">
+          <h2 class="text-white text-sm font-bold">Physical Card Overview</h2>
+          <p class="text-xs text-slate-400">10 Slips • 140 Cells • 260-bit Master Key</p>
+          <div class="mt-2 text-xs mono text-slate-300">
+            <div>Key FP: <span id="slipKeyFp" class="text-emerald-400 font-bold"></span></div>
+            <div>Card FP: <span id="slipCardFp" class="text-blue-400 font-bold"></span></div>
+          </div>
+        </div>
+
+        <button onclick="initCard()" class="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2">
+          <i class="fa-solid fa-arrows-rotate"></i> Generate Fresh 140-Cell Card
+        </button>
+
+        <div class="space-y-2" id="slipsList"></div>
+      </div>
+
+    </div>
+
+    <!-- Bottom Navigation Bar -->
+    <div class="bg-slate-950 border-t border-slate-800 px-6 py-2 flex justify-around items-center">
+      <button onclick="switchTab('unlock')" id="btnTabUnlock" class="flex flex-col items-center text-blue-400 text-xs font-medium transition">
+        <i class="fa-solid fa-lock-open text-base mb-1"></i>
+        <span>Unlock</span>
+      </button>
+      <button onclick="switchTab('cards')" id="btnTabCards" class="flex flex-col items-center text-slate-400 text-xs font-medium hover:text-white transition">
+        <i class="fa-solid fa-address-card text-base mb-1"></i>
+        <span>Paper Slips</span>
+      </button>
+    </div>
+
+  </div>
+
+  <!-- JavaScript Pure Finite Field & Shamir Implementation -->
+  <script>
+    const POLY = 0x100009;
+    const FBITS = 20;
+    const FMASK = (1 << 20) - 1;
+    const K = 13;
+    const EXTRA = 2;
+    const SLIPS = 10;
+    const CELLS = 14;
+    const B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
+    function gmul(a, b) {
+      let r = 0;
+      while (b > 0) {
+        if (b & 1) r ^= a;
+        b >>>= 1;
+        a <<= 1;
+        if ((a >>> FBITS) & 1) a ^= POLY;
+      }
+      return r & FMASK;
+    }
+
+    function gpow(a, e) {
+      let r = 1;
+      while (e > 0) {
+        if (e & 1) r = gmul(r, a);
+        a = gmul(a, a);
+        e >>>= 1;
+      }
+      return r;
+    }
+
+    function ginv(a) {
+      return gpow(a, (1 << FBITS) - 2);
+    }
+
+    function cellX(s, c) {
+      return (s - 1) * CELLS + c;
+    }
+
+    function encCell(v) {
+      let s = "";
+      for (let i = 3; i >= 0; i--) {
+        s += B32[(v >>> (5 * i)) & 31];
+      }
+      return s;
+    }
+
+    function decCell(s) {
+      let v = 0;
+      for (const ch of s.toUpperCase()) {
+        const idx = B32.indexOf(ch);
+        if (idx >= 0) v = (v << 5) | idx;
+      }
+      return v;
+    }
+
+    function evaluate(coef, x) {
+      let y = 0;
+      for (let i = coef.length - 1; i >= 0; i--) {
+        y = gmul(y, x) ^ coef[i];
+      }
+      return y;
+    }
+
+    function interpolate(pts) {
+      const xs = Object.keys(pts).map(Number);
+      const n = xs.length;
+      const coef = new Array(n).fill(0);
+
+      for (const i of xs) {
+        let num = new Array(n).fill(0);
+        num[0] = 1;
+        let den = 1;
+        let deg = 0;
+        for (const j of xs) {
+          if (i === j) continue;
+          let nextNum = new Array(n).fill(0);
+          for (let d = 0; d <= deg; d++) {
+            nextNum[d] ^= gmul(num[d], j);
+            if (d + 1 < n) nextNum[d + 1] ^= num[d];
+          }
+          num = nextNum;
+          deg++;
+          den = gmul(den, i ^ j);
+        }
+        const scale = gmul(pts[i], ginv(den));
+        for (let d = 0; d < n; d++) {
+          coef[d] ^= gmul(num[d], scale);
+        }
+      }
+      return coef;
+    }
+
+    // State
+    let currentCard = {};
+    let currentCoef = [];
+    let currentChallenge = [];
+    let enteredCells = new Array(K + EXTRA).fill("");
+
+    function initCard() {
+      currentCoef = Array.from({length: K}, () => Math.floor(Math.random() * (1 << FBITS)));
+      currentCard = {};
+      for (let s = 1; s <= SLIPS; s++) {
+        for (let c = 1; c <= CELLS; c++) {
+          const x = cellX(s, c);
+          const y = evaluate(currentCoef, x);
+          currentCard[`${s}.${c}`] = encCell(y);
+        }
+      }
+      const cFp = (Math.abs(currentCoef[0] ^ currentCoef[1])).toString(16).padStart(6, '0').slice(0, 6).toUpperCase();
+      const kFp = (Math.abs(currentCoef[K-1] ^ currentCoef[2])).toString(16).padStart(6, '0').slice(0, 6).toUpperCase();
+      document.getElementById('headerFp').innerText = `Card ${cFp} • Key ${kFp}`;
+      document.getElementById('slipCardFp').innerText = cFp;
+      document.getElementById('slipKeyFp').innerText = kFp;
+      renderSlips();
+      newChallenge();
+    }
+
+    function newChallenge() {
+      const pool = [];
+      for (let s = 1; s <= SLIPS; s++) {
+        for (let c = 1; c <= CELLS; c++) {
+          pool.push({s, c});
+        }
+      }
+      // Shuffle & pick 15
+      pool.sort(() => Math.random() - 0.5);
+      currentChallenge = pool.slice(0, K + EXTRA);
+      enteredCells = new Array(K + EXTRA).fill("");
+      renderGrid();
+      clearStatus();
+    }
+
+    function renderGrid() {
+      const grid = document.getElementById('cellsGrid');
+      grid.innerHTML = "";
+      currentChallenge.forEach((item, idx) => {
+        const card = document.createElement('div');
+        card.className = "bg-slate-800 border border-slate-700 rounded-xl p-2.5 flex flex-col items-center";
+        card.innerHTML = `
+          <div class="w-full flex justify-between text-[10px] text-slate-400 mb-1">
+            <span>#${idx + 1}</span>
+            <span class="text-blue-400 font-bold">s${item.s} c${item.c}</span>
+          </div>
+          <input type="text" maxlength="4" id="cellInput_${idx}" value="${enteredCells[idx]}"
+            class="w-full bg-slate-900 border border-slate-700 focus:border-blue-500 rounded-lg py-1 text-center font-bold text-sm text-white tracking-widest mono uppercase focus:outline-none"
+            oninput="handleCellInput(${idx}, this.value)">
+        `;
+        grid.appendChild(card);
+      });
+    }
+
+    function handleCellInput(index, val) {
+      const clean = val.replace(/[^A-Za-z2-7]/g, '').toUpperCase().slice(0, 4);
+      enteredCells[index] = clean;
+      document.getElementById(`cellInput_${index}`).value = clean;
+      
+      // Auto-advance
+      if (clean.length === 4 && index < currentChallenge.length - 1) {
+        document.getElementById(`cellInput_${index + 1}`).focus();
+      }
+      checkConsistency();
+    }
+
+    function checkConsistency() {
+      const allFilled = enteredCells.every(c => c.length === 4);
+      if (!allFilled) {
+        clearStatus();
+        return;
+      }
+
+      // Reconstruct
+      const pts = {};
+      for (let i = 0; i < K; i++) {
+        const item = currentChallenge[i];
+        pts[cellX(item.s, item.c)] = decCell(enteredCells[i]);
+      }
+      const recCoef = interpolate(pts);
+
+      // Check against checks
+      let hasError = false;
+      for (let i = K; i < K + EXTRA; i++) {
+        const item = currentChallenge[i];
+        const expectedY = evaluate(recCoef, cellX(item.s, item.c));
+        const actualY = decCell(enteredCells[i]);
+        if (expectedY !== actualY) {
+          hasError = true;
+          break;
+        }
+      }
+
+      const banner = document.getElementById('statusBanner');
+      banner.classList.remove('hidden', 'bg-emerald-950/80', 'text-emerald-300', 'border-emerald-600', 'bg-red-950/80', 'text-red-300', 'border-red-600');
+      
+      if (!hasError) {
+        banner.classList.add('bg-emerald-950/80', 'text-emerald-300', 'border', 'border-emerald-600/50');
+        banner.innerHTML = `<i class="fa-solid fa-circle-check text-emerald-400 text-sm"></i> <span>Vault Unlocked! Polynomial verified.</span>`;
+      } else {
+        banner.classList.add('bg-red-950/80', 'text-red-300', 'border', 'border-red-600/50');
+        banner.innerHTML = `<i class="fa-solid fa-triangle-exclamation text-red-400 text-sm"></i> <span>Typo detected! Cells are inconsistent.</span>`;
+      }
+    }
+
+    function clearStatus() {
+      const banner = document.getElementById('statusBanner');
+      banner.classList.add('hidden');
+    }
+
+    function autoFillCorrect() {
+      currentChallenge.forEach((item, idx) => {
+        enteredCells[idx] = currentCard[`${item.s}.${item.c}`];
+      });
+      renderGrid();
+      checkConsistency();
+    }
+
+    function autoFillTypo() {
+      autoFillCorrect();
+      enteredCells[0] = "ZZZZ"; // intentional typo
+      renderGrid();
+      checkConsistency();
+    }
+
+    function renderSlips() {
+      const list = document.getElementById('slipsList');
+      list.innerHTML = "";
+      for (let s = 1; s <= SLIPS; s++) {
+        const card = document.createElement('div');
+        card.className = "bg-slate-800/80 border border-slate-700/80 rounded-xl p-3";
+        let cellsHtml = "";
+        for (let c = 1; c <= CELLS; c++) {
+          cellsHtml += `
+            <div class="text-center p-1 bg-slate-900/60 rounded">
+              <div class="text-[9px] text-slate-500">c${c}</div>
+              <div class="text-[10px] font-bold text-slate-200 mono">${currentCard[`${s}.${c}`]}</div>
+            </div>
+          `;
+        }
+        card.innerHTML = `
+          <div class="flex justify-between items-center text-xs font-bold text-white mb-2">
+            <span>SLIP ${s}</span>
+            <span class="text-[10px] text-slate-400 font-normal">14 cells</span>
+          </div>
+          <div class="grid grid-cols-7 gap-1">${cellsHtml}</div>
+        `;
+        list.appendChild(card);
+      }
+    }
+
+    function switchTab(tab) {
+      if (tab === 'unlock') {
+        document.getElementById('tabUnlock').classList.remove('hidden');
+        document.getElementById('tabCards').classList.add('hidden');
+        document.getElementById('btnTabUnlock').classList.add('text-blue-400');
+        document.getElementById('btnTabCards').classList.remove('text-blue-400');
+      } else {
+        document.getElementById('tabUnlock').classList.add('hidden');
+        document.getElementById('tabCards').classList.remove('hidden');
+        document.getElementById('btnTabCards').classList.add('text-blue-400');
+        document.getElementById('btnTabUnlock').classList.remove('text-blue-400');
+      }
+    }
+
+    // Init
+    initCard();
+  </script>
+</body>
+</html>

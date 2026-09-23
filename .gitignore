@@ -1,0 +1,25 @@
+# Build output & caches
+build/
+**/build/
+.gradle/
+**/.gradle/
+.kotlin/
+local.properties
+
+# Release archives & artifacts (large, regenerated)
+releases/
+*.apk
+*.aab
+*.tar
+*.tar.gz
+
+# Sealed vaults / secrets — never commit
+*.qv5
+*.jks
+*.keystore
+*.credentials
+
+# IDE
+.idea/
+*.iml
+.DS_Store
