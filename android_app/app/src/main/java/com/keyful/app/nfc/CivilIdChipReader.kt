@@ -1,4 +1,4 @@
-package com.qvault.app.nfc
+package com.keyful.app.nfc
 
 import android.nfc.Tag
 import android.nfc.tech.IsoDep

@@ -1,4 +1,4 @@
-package com.qvault.app.ui.components
+package com.keyful.app.ui.components
 
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image

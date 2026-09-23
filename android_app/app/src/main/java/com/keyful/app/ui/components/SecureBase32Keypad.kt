@@ -1,4 +1,4 @@
-package com.qvault.app.ui.components
+package com.keyful.app.ui.components
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
@@ -23,7 +23,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.qvault.app.domain.QVaultEngine
+import com.keyful.app.domain.QVaultEngine
 import java.security.SecureRandom
 
 /**

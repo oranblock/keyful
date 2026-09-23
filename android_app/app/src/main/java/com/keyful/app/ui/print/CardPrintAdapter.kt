@@ -1,4 +1,4 @@
-package com.qvault.app.ui.print
+package com.keyful.app.ui.print
 
 import android.content.Context
 import android.graphics.Color
@@ -13,7 +13,7 @@ import android.print.PrintAttributes
 import android.print.PrintDocumentAdapter
 import android.print.PrintDocumentInfo
 import android.print.PrintManager
-import com.qvault.app.domain.VaultCard
+import com.keyful.app.domain.VaultCard
 import java.io.FileOutputStream
 import java.io.IOException
 

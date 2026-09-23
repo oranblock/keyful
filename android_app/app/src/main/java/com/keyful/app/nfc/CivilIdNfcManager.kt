@@ -1,4 +1,4 @@
-package com.qvault.app.nfc
+package com.keyful.app.nfc
 
 import android.app.Activity
 import android.nfc.NfcAdapter

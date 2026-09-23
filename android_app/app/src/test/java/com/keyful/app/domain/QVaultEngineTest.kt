@@ -1,4 +1,4 @@
-package com.qvault.app.domain
+package com.keyful.app.domain
 
 import org.json.JSONObject
 import org.junit.Assert.*

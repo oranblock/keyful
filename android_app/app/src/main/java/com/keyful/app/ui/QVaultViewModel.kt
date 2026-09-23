@@ -1,10 +1,10 @@
-package com.qvault.app.ui
+package com.keyful.app.ui
 
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.qvault.app.domain.*
-import com.qvault.app.nfc.CivilIdChipReader
+import com.keyful.app.domain.*
+import com.keyful.app.nfc.CivilIdChipReader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

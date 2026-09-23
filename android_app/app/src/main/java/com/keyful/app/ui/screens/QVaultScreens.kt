@@ -1,4 +1,4 @@
-package com.qvault.app.ui.screens
+package com.keyful.app.ui.screens
 
 import android.content.Context
 import android.net.Uri
@@ -39,10 +39,10 @@ import androidx.compose.ui.text.input.*
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.qvault.app.domain.*
-import com.qvault.app.ui.QVaultViewModel
-import com.qvault.app.ui.components.*
-import com.qvault.app.ui.print.CardPrintDocumentAdapter
+import com.keyful.app.domain.*
+import com.keyful.app.ui.QVaultViewModel
+import com.keyful.app.ui.components.*
+import com.keyful.app.ui.print.CardPrintDocumentAdapter
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.nio.charset.StandardCharsets

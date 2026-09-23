@@ -7,11 +7,11 @@ plugins {
 val resolvedCompileSdk = (project.findProperty("compileSdkOverride") as String?)?.toInt() ?: 35
 
 android {
-    namespace = "com.qvault.app"
+    namespace = "com.keyful.app"
     compileSdk = resolvedCompileSdk
 
     defaultConfig {
-        applicationId = "com.qvault.app"
+        applicationId = "com.keyful.app"
         minSdk = 26
         targetSdk = 35
 

@@ -1,4 +1,4 @@
-package com.qvault.app.domain
+package com.keyful.app.domain
 
 import org.bouncycastle.crypto.digests.SHAKEDigest
 import org.json.JSONObject

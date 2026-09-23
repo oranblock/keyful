@@ -1,4 +1,4 @@
-package com.qvault.app.ui.components
+package com.keyful.app.ui.components
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -15,8 +15,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.window.Dialog
-import com.qvault.app.domain.NfcScanUiState
-import com.qvault.app.nfc.CivilIdChipReader
+import com.keyful.app.domain.NfcScanUiState
+import com.keyful.app.nfc.CivilIdChipReader
 
 /**
  * Collects what is needed to open the Civil ID chip and to key the vault.

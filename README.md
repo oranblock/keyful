@@ -61,8 +61,8 @@ Release builds sign from env-provided keystore paths (see `release.env`); keys a
 
 ## License
 
-TBD before any public release.
+MIT — see [LICENSE](LICENSE). Third-party components keep their own licenses (JMRTD/SCUBA are LGPL-3.0).
 
 ---
 
-*Built and hardened with the help of Claude Code. The name on the repo is Keyful; the current package id is still `com.qvault.app` pending a rename.*
+*Built and hardened with the help of Claude Code. The name on the repo is Keyful.*

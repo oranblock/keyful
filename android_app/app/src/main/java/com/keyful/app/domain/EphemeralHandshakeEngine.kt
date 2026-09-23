@@ -1,4 +1,4 @@
-package com.qvault.app.domain
+package com.keyful.app.domain
 
 import org.bouncycastle.crypto.agreement.X25519Agreement
 import org.bouncycastle.crypto.generators.Argon2BytesGenerator

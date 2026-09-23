@@ -1,4 +1,4 @@
-package com.qvault.app
+package com.keyful.app
 
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -21,11 +21,11 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import com.qvault.app.domain.NfcScanUiState
-import com.qvault.app.nfc.CivilIdNfcManager
-import com.qvault.app.ui.QVaultViewModel
-import com.qvault.app.ui.screens.QVaultMainScreen
-import com.qvault.app.ui.theme.QVaultTheme
+import com.keyful.app.domain.NfcScanUiState
+import com.keyful.app.nfc.CivilIdNfcManager
+import com.keyful.app.ui.QVaultViewModel
+import com.keyful.app.ui.screens.QVaultMainScreen
+import com.keyful.app.ui.theme.QVaultTheme
 import kotlinx.coroutines.launch
 import java.nio.charset.StandardCharsets
 
