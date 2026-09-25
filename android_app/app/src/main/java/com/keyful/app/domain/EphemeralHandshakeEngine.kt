@@ -330,7 +330,7 @@ object EphemeralHandshakeEngine {
         return masterKey
     }
 
-    // --- Device Hardening: Seal Card with Civil ID + Device UUID + Passkey ---
+    // --- Device Hardening: Seal Card with Passport chip + Device UUID + Passkey ---
 
     fun sealCardToDevice(
         coef: List<Int>,
@@ -343,7 +343,7 @@ object EphemeralHandshakeEngine {
         val salt = ByteArray(16)
         rng.nextBytes(salt)
 
-        // Argon2id KDF combining Passkey + Civil ID NFC Chip UID + Device Hardware UUID
+        // Argon2id KDF combining Passkey + passport chip identity (DG15 key digest) + Device Hardware UUID
         val combinedSecret = ByteBuffer.allocate(passkeyBytes.size + civilIdUid.size + deviceUuid.length)
             .put(passkeyBytes)
             .put(civilIdUid)

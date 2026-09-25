@@ -19,7 +19,7 @@ import com.keyful.app.domain.NfcScanUiState
 import com.keyful.app.nfc.CivilIdChipReader
 
 /**
- * Collects what is needed to open the Civil ID chip and to key the vault.
+ * Collects what is needed to open the passport chip and to key the vault.
  *
  * The chip will not talk to any reader that cannot prove it is holding the card, so the
  * card access number (or the document number with the two dates) is required by the
@@ -31,7 +31,7 @@ fun CardCredentialsDialog(
     onConfirm: (accessKey: CivilIdChipReader.AccessKey, passkey: ByteArray) -> Unit,
     onCancel: () -> Unit
 ) {
-    var useCan by remember { mutableStateOf(true) }
+    var useCan by remember { mutableStateOf(false) }   // passports print the details, rarely a CAN
     var can by remember { mutableStateOf("") }
     var documentNumber by remember { mutableStateOf("") }
     var dateOfBirth by remember { mutableStateOf("") }
@@ -50,13 +50,13 @@ fun CardCredentialsDialog(
         ) {
             Column(modifier = Modifier.padding(24.dp)) {
                 Text(
-                    "Unlock your Civil ID chip",
+                    "Unlock your passport chip",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    "The chip only opens for a reader that knows what is printed on the card.",
+                    "The chip only opens for a reader that knows what is printed on the passport's photo page.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -64,14 +64,14 @@ fun CardCredentialsDialog(
                 Spacer(modifier = Modifier.height(16.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
+                        selected = !useCan,
+                        onClick = { useCan = false },
+                        label = { Text("Passport details") }
+                    )
+                    FilterChip(
                         selected = useCan,
                         onClick = { useCan = true },
                         label = { Text("Card number (CAN)") }
-                    )
-                    FilterChip(
-                        selected = !useCan,
-                        onClick = { useCan = false },
-                        label = { Text("Document details") }
                     )
                 }
 
@@ -81,7 +81,7 @@ fun CardCredentialsDialog(
                         value = can,
                         onValueChange = { can = it.filter { ch -> ch.isDigit() } },
                         label = { Text("Card Access Number") },
-                        supportingText = { Text("The short number printed on the card face") },
+                        supportingText = { Text("Only if your passport prints a card access number") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -89,7 +89,7 @@ fun CardCredentialsDialog(
                     OutlinedTextField(
                         value = documentNumber,
                         onValueChange = { documentNumber = it.uppercase() },
-                        label = { Text("Document number") },
+                        label = { Text("Passport number") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -122,7 +122,7 @@ fun CardCredentialsDialog(
                     onValueChange = { passkey = it },
                     label = { Text("Your passkey") },
                     supportingText = {
-                        Text("At least 6 characters. Without this, anyone holding your card could open the vault.")
+                        Text("At least 6 characters. Without this, anyone holding your passport could open the vault.")
                     },
                     visualTransformation = PasswordVisualTransformation(),
                     singleLine = true,
@@ -188,7 +188,7 @@ fun NfcScanDialog(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            "Civil ID NFC Ready",
+                            "Passport NFC Ready",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold
                         )
@@ -423,7 +423,7 @@ fun SignPeerChallengeDialog(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    "Paste peer's QVC1:... challenge, then tap Civil ID",
+                    "Paste peer's QVC1:... challenge, then tap your passport",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.Gray
                 )
@@ -453,7 +453,7 @@ fun SignPeerChallengeDialog(
                         modifier = Modifier.weight(1f),
                         enabled = challengeInput.isNotBlank()
                     ) {
-                        Text("Tap Civil ID")
+                        Text("Tap Passport")
                     }
                 }
             }

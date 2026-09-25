@@ -143,7 +143,7 @@ fun QVaultMainScreen(viewModel: QVaultViewModel) {
                                 )
                             } else if (sealedCardFp != null) {
                                 Text(
-                                    "🛡️ Sealed to Civil ID (Card $sealedCardFp)",
+                                    "🛡️ Sealed to Passport (Card $sealedCardFp)",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = Color(0xFF60A5FA)
                                 )
@@ -601,7 +601,7 @@ fun UnlockScreen(
                                 val label = if (matchesRam) {
                                     "Sealed with Active Card: $loadedVaultCardFp ✓"
                                 } else if (matchesSealed) {
-                                    "Sealed with Civil ID Card: $loadedVaultCardFp ✓" + if (voiceFormat) "" else " (Tap Civil ID to Unseal)"
+                                    "Sealed with Passport-bound Card: $loadedVaultCardFp ✓" + if (voiceFormat) "" else " (Tap Passport to Unseal)"
                                 } else {
                                     "Sealed with Card: $loadedVaultCardFp ⚠️ (Requires Card $loadedVaultCardFp)"
                                 }
@@ -646,7 +646,7 @@ fun UnlockScreen(
             }
         }
 
-        // Civil ID Hardware Quick-Unseal Banner (Zero Typing)
+        // Passport Quick-Unseal Banner (Zero Typing)
         if (sealedCardFp != null && activeVaultName != null && !voiceFormat && unlockState !is UnlockState.Success) {
             Spacer(modifier = Modifier.height(6.dp))
             Card(
@@ -674,7 +674,7 @@ fun UnlockScreen(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                "Civil ID Hardware Quick-Unseal",
+                                "Passport Quick-Unseal",
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF60A5FA),
                                 fontSize = 13.sp
@@ -682,7 +682,7 @@ fun UnlockScreen(
                         }
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            "Card $sealedCardFp is sealed to this phone. Tap physical Civil ID NFC to unseal without typing.",
+                            "Card $sealedCardFp is sealed to this phone. Tap your passport to unseal without typing.",
                             fontSize = 11.sp,
                             color = Color.LightGray
                         )
@@ -1230,13 +1230,13 @@ fun SealScreen(
                             Icon(Icons.Default.Shield, contentDescription = null, tint = Color(0xFF60A5FA), modifier = Modifier.size(24.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Column {
-                                Text("Civil ID Hardware Card Active", fontWeight = FontWeight.Bold, color = Color(0xFF60A5FA), fontSize = 14.sp)
+                                Text("Passport-Bound Card Active", fontWeight = FontWeight.Bold, color = Color(0xFF60A5FA), fontSize = 14.sp)
                                 Text("Bound Card: $sealedCardFp", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
                             }
                         }
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Encrypt directly using your physical Civil ID card, or tap below to restore the full card into RAM.",
+                            "Encrypt directly by tapping your passport, or tap below to restore the full card into RAM.",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1248,7 +1248,7 @@ fun SealScreen(
                         ) {
                             Icon(Icons.Default.Contactless, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Restore Card to RAM (Tap Civil ID)", fontSize = 11.sp)
+                            Text("Restore Card to RAM (Tap Passport)", fontSize = 11.sp)
                         }
                     }
                 }
@@ -1365,7 +1365,7 @@ fun SealScreen(
                             ) {
                                 Icon(Icons.Default.Contactless, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Seal with Civil ID", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text("Seal with Passport", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
                             OutlinedButton(
                                 onClick = {
@@ -1450,7 +1450,7 @@ fun SealScreen(
                                 ) {
                                     Icon(Icons.Default.Contactless, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Seal with Civil ID", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Text("Seal with Passport", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                 }
                                 OutlinedButton(
                                     onClick = {
@@ -1601,14 +1601,14 @@ fun CardSlipsScreen(
                             Icon(Icons.Default.Shield, contentDescription = null, tint = Color(0xFF60A5FA), modifier = Modifier.size(28.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Column {
-                                Text("Civil ID Hardware Seal Active", fontWeight = FontWeight.Bold, color = Color(0xFF60A5FA), style = MaterialTheme.typography.titleMedium)
+                                Text("Passport Seal Active", fontWeight = FontWeight.Bold, color = Color(0xFF60A5FA), style = MaterialTheme.typography.titleMedium)
                                 Text("Bound Card: $sealedCardFp", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
                             }
                         }
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "This card's polynomial is encrypted with Argon2id bound to your physical Civil ID NFC chip UID and device hardware UUID.\n\n" +
-                            "• Unlocking vaults requires zero typing — simply tap your physical Civil ID card.\n" +
+                            "This card's polynomial is encrypted with Argon2id bound to your passport chip's Active Authentication key, this phone and your passkey.\n\n" +
+                            "• Unlocking vaults requires zero typing — tap your passport and enter your passkey.\n" +
                             "• Plaintext recovery card is NOT stored in RAM or storage.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1621,7 +1621,7 @@ fun CardSlipsScreen(
                         ) {
                             Icon(Icons.Default.Contactless, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Restore Paper Card to RAM (Tap Civil ID)", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("Restore Paper Card to RAM (Tap Passport)", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         }
                         Spacer(modifier = Modifier.height(8.dp))
                         OutlinedButton(
@@ -1645,21 +1645,21 @@ fun CardSlipsScreen(
             )
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                if (sealedCardFp != null) "Physical Card Hardware Bound" else "No Paper Card in Memory",
+                if (sealedCardFp != null) "Card Bound to Your Passport" else "No Paper Card in Memory",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                if (sealedCardFp != null) "Protected by Civil ID NFC Chip" else "Paper is the Single Source of Truth",
+                if (sealedCardFp != null) "Protected by Your Passport Chip" else "Paper is the Single Source of Truth",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.SemiBold
             )
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                "Your recovery card is designed to live solely on physical paper slips or bound to your physical government Civil ID NFC chip.\n\n" +
-                "• Unlocking vaults NEVER requires a card in memory (you enter the challenge cells from paper or tap your Civil ID).\n" +
+                "Your recovery card is designed to live solely on physical paper slips or bound to your passport's chip.\n\n" +
+                "• Unlocking vaults NEVER requires a card in memory (you enter the challenge cells from paper or tap your passport).\n" +
                 "• To create vaults or print a new paper card, generate one below. After printing or sealing, burn it from RAM.",
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center,
@@ -1744,7 +1744,7 @@ fun CardSlipsScreen(
             }
         }
 
-        // Civil ID NFC Sealing Action
+        // Passport NFC Sealing Action
         Spacer(modifier = Modifier.height(8.dp))
         Button(
             onClick = onSealToCivilId,
@@ -1757,7 +1757,7 @@ fun CardSlipsScreen(
         ) {
             Icon(Icons.Default.Contactless, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(8.dp))
-            Text("💳 Seal to Civil ID NFC & Device (Zero-Typing)")
+            Text("🛂 Seal to Passport & Device (Zero-Typing)")
         }
 
         Spacer(modifier = Modifier.height(12.dp))

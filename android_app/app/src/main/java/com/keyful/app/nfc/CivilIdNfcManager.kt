@@ -6,7 +6,7 @@ import android.nfc.Tag
 import android.os.Bundle
 
 /**
- * Reader-mode plumbing for government Civil ID smartcards (ISO 14443 Type A/B).
+ * Reader-mode plumbing for passport chips (ISO 14443 Type A/B).
  *
  * This class only captures the tag. Everything cryptographic happens in
  * [CivilIdChipReader], which opens the chip with PACE or BAC and identifies it by its
@@ -79,11 +79,11 @@ class CivilIdNfcManager(
         val techList = tag.techList.map { it.substringAfterLast(".") }
         if (!techList.contains("IsoDep")) {
             android.util.Log.w("QVault", "Tag without IsoDep: $techList")
-            onError("This card has no readable smartcard chip. Use a government Civil ID.")
+            onError("This card has no readable smartcard chip. Use your passport.")
             return
         }
 
-        android.util.Log.i("QVault", "Civil ID tag captured (Tech: $techList)")
+        android.util.Log.i("QVault", "Passport tag captured (Tech: $techList)")
         onTagCaptured(tag)
     }
 }

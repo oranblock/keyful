@@ -22,7 +22,11 @@ import java.security.interfaces.ECPublicKey
 import java.security.interfaces.RSAPublicKey
 
 /**
- * Reads a Kuwait PACI / ICAO 9303 Civil ID chip the way the chip is designed to be read.
+ * Reads an ICAO 9303 passport chip the way the chip is designed to be read.
+ *
+ * Kuwait PACI Civil IDs cannot be used: their applets refuse any reader without PACI keys
+ * (6982), their ISO 14443-B PUPI changes on every tap, and the values that stay stable are
+ * identical on every card. The UI therefore asks for a passport.
  *
  * The files on these cards are not readable with bare READ BINARY: every such attempt
  * answers 6A82 ("file not found") because the file only exists once secure messaging is

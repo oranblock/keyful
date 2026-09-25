@@ -72,7 +72,7 @@ class QVaultViewModel : ViewModel() {
     private val _loadedVaultCardFp = MutableStateFlow<String?>(null)
     val loadedVaultCardFp: StateFlow<String?> = _loadedVaultCardFp.asStateFlow()
 
-    // --- Civil ID NFC & Device Bound Hardware Storage ---
+    // --- Passport NFC chip & device-bound hardware storage ---
     private val _sealedCardFp = MutableStateFlow<String?>(null)
     val sealedCardFp: StateFlow<String?> = _sealedCardFp.asStateFlow()
 
@@ -741,7 +741,7 @@ class QVaultViewModel : ViewModel() {
         pendingExportPayload = null
     }
 
-    // --- Civil ID NFC Hardware Sealing & Unsealing ---
+    // --- Passport NFC sealing & unsealing ---
 
     fun checkSealedCard(filesDir: File) {
         viewModelScope.launch {
@@ -788,11 +788,11 @@ class QVaultViewModel : ViewModel() {
     fun startNfcScan(action: NfcAction, challengeStr: String? = null) {
         pendingChallengeToSign = challengeStr
         val msg = when (action) {
-            NfcAction.SEAL_CARD -> "Hold Government Civil ID (Saudi / Kuwait / UAE / National ID) to the back of the phone to bind and seal this card."
-            NfcAction.UNSEAL_VAULT -> "Hold Government Civil ID to the back of the phone to unseal the active vault instantly."
-            NfcAction.SIGN_CHALLENGE -> "Hold Government Civil ID to sign the wireless handshake challenge."
-            NfcAction.RESTORE_CARD_TO_RAM -> "Hold Government Civil ID to the back of the phone to restore your card to memory."
-            NfcAction.SEAL_VAULT_PAYLOAD -> "Hold Government Civil ID to the back of the phone to encrypt and seal this vault."
+            NfcAction.SEAL_CARD -> "Hold your passport flat against the back of the phone to bind and seal this card."
+            NfcAction.UNSEAL_VAULT -> "Hold your passport against the back of the phone to unseal the active vault."
+            NfcAction.SIGN_CHALLENGE -> "Hold your passport against the back of the phone to sign the wireless handshake challenge."
+            NfcAction.RESTORE_CARD_TO_RAM -> "Hold your passport against the back of the phone to restore your card to memory."
+            NfcAction.SEAL_VAULT_PAYLOAD -> "Hold your passport against the back of the phone to encrypt and seal this vault."
         }
         _nfcScanState.value = NfcScanUiState.WaitingForCard(action, msg)
         Log.i(TAG, "NFC Reader Mode activated for action: $action")
@@ -804,7 +804,7 @@ class QVaultViewModel : ViewModel() {
         pendingChallengeToSign = null
         pendingSealPayload?.outputStream?.let {
             closeQuietly(it)
-            _sealState.value = SealState.Error("Export cancelled before the Civil ID was tapped, so the exported file is empty. Delete it and export again.")
+            _sealState.value = SealState.Error("Export cancelled before the passport was tapped, so the exported file is empty. Delete it and export again.")
         }
         pendingSealPayload = null
     }
@@ -858,7 +858,7 @@ class QVaultViewModel : ViewModel() {
         _nfcScanState.value = NfcScanUiState.Error(error)
         pendingSealPayload?.outputStream?.let {
             closeQuietly(it)
-            _sealState.value = SealState.Error("Civil ID was not read, so the exported file is empty. Delete it and export again.")
+            _sealState.value = SealState.Error("The passport was not read, so the exported file is empty. Delete it and export again.")
             pendingSealPayload = null
         }
     }
@@ -889,7 +889,7 @@ class QVaultViewModel : ViewModel() {
 
         if (effectiveAction == null) {
             val hex = cardUid.joinToString(":") { "%02X".format(it) }
-            _nfcScanState.value = NfcScanUiState.Success("Civil ID Chip Detected ($hex)\nLoad a vault to unseal, or generate a card to seal.")
+            _nfcScanState.value = NfcScanUiState.Success("Passport Chip Detected ($hex)\nLoad a vault to unseal, or generate a card to seal.")
             return
         }
 
@@ -912,8 +912,8 @@ class QVaultViewModel : ViewModel() {
                         file.writeText(container.serialize())
                         _sealedCardFp.value = currentCard.fingerprint
                         burnCard()
-                        _nfcScanState.value = NfcScanUiState.Success("Card bound to Civil ID NFC chip and sealed to device!")
-                        Log.i(TAG, "Card successfully bound to Civil ID hardware chip UID: ${cardUid.joinToString(":") { "%02X".format(it) }}")
+                        _nfcScanState.value = NfcScanUiState.Success("Card bound to your passport chip and sealed to this phone!")
+                        Log.i(TAG, "Card bound to passport chip id: ${cardUid.joinToString(":") { "%02X".format(it) }}")
                     }
                     NfcAction.RESTORE_CARD_TO_RAM -> {
                         val file = File(filesDir, "sealed_card.qvseal")
@@ -932,8 +932,8 @@ class QVaultViewModel : ViewModel() {
                         }
                         _card.value = restoredCard
                         newChallenge()
-                        _nfcScanState.value = NfcScanUiState.Success("Card ${container.cardFp} restored to memory from Civil ID chip!")
-                        Log.i(TAG, "Card successfully restored to RAM via Civil ID NFC!")
+                        _nfcScanState.value = NfcScanUiState.Success("Card ${container.cardFp} restored to memory from your passport chip!")
+                        Log.i(TAG, "Card restored to RAM via passport NFC")
                     }
                     NfcAction.SEAL_VAULT_PAYLOAD -> {
                         val file = File(filesDir, "sealed_card.qvseal")
@@ -974,10 +974,10 @@ class QVaultViewModel : ViewModel() {
                         _sealState.value = SealState.Success(
                             fileName = finalPath,
                             size = sealed.size,
-                            message = "Vault encrypted & sealed using Civil ID NFC hardware chip!"
+                            message = "Vault encrypted & sealed using your passport chip!"
                         )
-                        _nfcScanState.value = NfcScanUiState.Success("Vault created and sealed with Civil ID NFC!")
-                        Log.i(TAG, "Payload successfully sealed using Civil ID NFC token")
+                        _nfcScanState.value = NfcScanUiState.Success("Vault created and sealed with your passport!")
+                        Log.i(TAG, "Payload sealed using passport NFC")
                     }
                     NfcAction.UNSEAL_VAULT -> {
                         val file = File(filesDir, "sealed_card.qvseal")
@@ -985,7 +985,7 @@ class QVaultViewModel : ViewModel() {
                         val container = EphemeralHandshakeEngine.SealedCardContainer.parse(file.readText())
                         val vaultFp = _loadedVaultCardFp.value
                         if (vaultFp != null && vaultFp != container.cardFp) {
-                            throw IllegalStateException("Vault requires Card $vaultFp, but your Civil ID is bound to Card ${container.cardFp}")
+                            throw IllegalStateException("Vault requires Card $vaultFp, but your passport is bound to Card ${container.cardFp}")
                         }
                         val coef = withContext(Dispatchers.Default) {
                             EphemeralHandshakeEngine.unsealCardFromDevice(
@@ -1009,7 +1009,7 @@ class QVaultViewModel : ViewModel() {
                                 QVaultEngine.openPayload(vault, mk)
                             }
                         } catch (e: Exception) {
-                            throw IllegalStateException("Decryption failed. Vault key does not match this Civil ID card.", e)
+                            throw IllegalStateException("Decryption failed. Vault key does not match this passport.", e)
                         }
                         _unlockState.value = UnlockState.Success(
                             masterKeyFp = keyFingerprint,
@@ -1017,8 +1017,8 @@ class QVaultViewModel : ViewModel() {
                             metaName = if (meta.isNull("name")) null else meta.optString("name"),
                             payload = payload
                         )
-                        _nfcScanState.value = NfcScanUiState.Success("Vault unsealed instantly with Civil ID NFC!")
-                        Log.i(TAG, "Vault unsealed via Civil ID NFC without typing!")
+                        _nfcScanState.value = NfcScanUiState.Success("Vault unsealed with your passport!")
+                        Log.i(TAG, "Vault unsealed via passport NFC without typing")
                     }
                     NfcAction.SIGN_CHALLENGE -> {
                         val file = File(filesDir, "sealed_card.qvseal")
@@ -1039,7 +1039,7 @@ class QVaultViewModel : ViewModel() {
                         }
                         _generatedResponseQr.value = response.serialize()
                         _nfcScanState.value = NfcScanUiState.Success("Ephemeral Response Generated! Ready for peer scan.")
-                        Log.i(TAG, "Ephemeral response signed via Civil ID NFC")
+                        Log.i(TAG, "Ephemeral response signed via passport NFC")
                     }
                 }
             } catch (e: Exception) {
@@ -1048,7 +1048,7 @@ class QVaultViewModel : ViewModel() {
                 clearCardCredentials()
                 pendingSealPayload?.outputStream?.let {
                     closeQuietly(it)
-                    _sealState.value = SealState.Error("Sealing failed after the Civil ID tap, so the exported file is empty: ${e.message}")
+                    _sealState.value = SealState.Error("Sealing failed after the passport tap, so the exported file is empty: ${e.message}")
                 }
                 pendingSealPayload = null
             }
