@@ -13,18 +13,61 @@ Keyful is an **unaudited prototype**. This file says what to attack, what's alre
 - Argon2id device-seal parameters and the passkey path.
 - Key material lifetime in memory: RAM-wipe on background/idle, and any place plaintext or coefficients outlive their use.
 - Any accidental data egress (should be impossible with no `INTERNET` permission — prove otherwise).
+- **QV6 / QV7 vaults** (`domain/VoiceVault.kt`, `voicelab/VoiceLock.kt`) — see [QV6 / QV7](#qv6--qv7-cells--voice--passphrase) below. Open one without the right cells, voice or passphrase. Relabel, splice or reorder its lock sets. Find a way to get the voice or passphrase check without first having the cell secret.
 
 ## Known limitations (not new findings)
 
 Report these only if you can escalate them past what's stated:
 
-- **Single factor.** Whoever holds any **13 correct cells** can open a matching vault. There is currently no required passkey on top. A card photo = total compromise. This is documented and on the roadmap (off-card factor: passkey or device-held share).
+- **QV5 is single factor.** Whoever holds any **13 correct cells** can open a matching `.qv5`. A card photo = total compromise. QV7 (below) adds a voice and a passphrase on top of the card.
 - **Offline = unrecoverable if lost.** No cloud recovery, by design.
 - **Obfuscation is not encryption.** Anything relying on hiding the *format* (vs. the *key*) is understood to be non-security. Don't report format obfuscation as protection.
 - **`detekt` gate** in the release script is currently bypassed. Known.
 - **GF(2^20) arithmetic is not constant-time.** `gmul` has data-dependent branches. Given the threat model — 13 cells typed by hand over seconds on an air-gapped device — microarchitectural cache-timing attacks are not considered reachable. Constant-time reimplementation is welcome but low priority for this use.
 - **Memory zeroing is best-effort.** Secrets held as `ByteArray` are `fill(0)`-wiped on use and on background/idle, but the JVM/ART garbage collector may relocate objects and immutable `String` copies can linger in the heap. True erasure would require native (`mlock`/`memset_s`) handling. Treat RAM-wipe as defense-in-depth, not a guarantee.
 - **Not audited.** No third-party review has been done.
+
+## QV6 / QV7 (cells + voice + passphrase)
+
+New and less tested than QV5. When you seal, you choose N cells (3 to 13) and a vault type:
+
+- `.qv6`: N cells + voice.
+- `.qv7`: N cells + voice + passphrase.
+
+**Construction:**
+
+```
+cellSecret, voiceSecret = 32 random bytes each
+vaultKey    = SHAKE256("QV67-KEY" ‖ magic ‖ cellSecret ‖ voiceSecret)
+cell lock i = AES-GCM(Argon2id(values of cell subset S_i ‖ i, salt_i, 8 MiB, 1 pass), cellSecret)
+              32 locks, each S_i a random N-cell subset of the 140
+voice lock  = VoiceLock: sample-then-lock fuzzy extractor (Canetti et al.)
+              over a 128-d Vosk x-vector (vosk-model-spk-0.4):
+              pool = 64 strongest dims, sign = bit; 64 locks, each over a random 12-dim subset
+              lock key = Argon2id(kFactor ‖ bits ‖ j, salt_j, 8 MiB, 1 pass)
+              kFactor  = SHA-256(tag ‖ kPass ‖ cellSecret)
+              kPass    = Argon2id(passphrase, 64 MiB, 3 passes), or zeros for QV6
+payload     = the QV5 chunked AES-256-GCM container keyed by vaultKey;
+              both lock sets sit in its header, which every chunk authenticates
+```
+
+**Unlock:**
+1. The app picks one cell lock at random and asks for its N cells.
+2. The right cells give `cellSecret`.
+3. You say 5 random words from a 24-word list. Speech recognition must hear the exact word, and 3 misses bring new words.
+4. The whole answer becomes the voiceprint.
+5. The voiceprint and the passphrase must open one voice lock.
+
+Every factor is key material. The voiceprint is never stored.
+
+**Known limitations. These are design facts, not findings:**
+
+- **Voice is low entropy.** Each voice lock hides 12 bits. With the right cells and passphrase, a random other voice opens one of the 64 locks about L/2^K = 64/4096 ≈ 1.6% of the time. Similar voices do better.
+- **QV6 plus a stolen card is weak.** Take someone who holds the paper card and a copy of the `.qv6` file. The cells give them `cellSecret`, so only 4096 voice guesses per lock remain. That is roughly a minute on a PC. QV7's passphrase is what holds in this case.
+- **A voice is not a secret.** Anyone with a recording of you can compute your x-vector offline, from any speech. The random words only stop replay through the app's own microphone path. They do nothing against an attacker who has the file and the cells.
+- **No voice, no vault.** A lasting change in your voice makes a QV6/QV7 vault unopenable, and so does a different speaker model. QV6/QV7 have no card-only recovery. `qvault5.py` cannot open them. Keep a QV5 copy of anything you cannot lose.
+- **Shoulder-surfing the cells** reveals the cell set of one lock. Such an attacker still needs the voice, plus the passphrase for QV7.
+- **The file shows which 64 of the 128 voiceprint dimensions are strongest.** It does not show their signs.
 
 ## Mitigations already in place
 
@@ -45,6 +88,6 @@ Report these only if you can escalate them past what's stated:
 
 ## Verify it yourself
 
-The reference Python implementation `qvault5.py` decrypts any `.qv5` from the paper card alone — no app, no server. Use it to confirm exactly what a vault does and does not require.
+The reference Python implementation `qvault5.py` decrypts any `.qv5` from the paper card alone — no app, no server. Use it to confirm exactly what a vault does and does not require. It does not open `.qv6`/`.qv7`, which need the app's voice pipeline. Their construction is covered by `VoiceVaultTest` and `VoiceLockTest`.
 
 No bounty is offered — this is a prototype. Credit is given for any accepted finding.
