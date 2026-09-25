@@ -22,6 +22,15 @@
 -dontwarn java.awt.**
 -dontwarn javax.imageio.**
 
+# ── Vosk offline speech + speaker models (via JNA) ───────────────────────────
+# JNA binds native functions and struct fields by name, through reflection and
+# from native code, and neither AAR ships consumer rules. Renaming or stripping
+# any of it makes the voice models fail to load, so QV6/QV7 could not open.
+-keep class com.sun.jna.** { *; }
+-keepclassmembers class * extends com.sun.jna.** { public *; }
+-keep class org.vosk.** { *; }
+-dontwarn com.sun.jna.**
+
 # ── AndroidX & Compose ────────────────────────────────────────────────────────
 -dontwarn kotlinx.coroutines.**
 -dontwarn com.google.errorprone.annotations.**
