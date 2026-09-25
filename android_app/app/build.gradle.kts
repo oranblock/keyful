@@ -97,6 +97,8 @@ dependencies {
     implementation("net.sf.scuba:scuba-sc-android:0.0.27")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("com.google.zxing:core:3.5.3")
+    // Offline speech recognition for the experimental Voice Lab (no network).
+    implementation("com.alphacephei:vosk-android:0.3.75")
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlin.test)

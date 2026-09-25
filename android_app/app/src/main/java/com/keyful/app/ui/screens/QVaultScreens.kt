@@ -43,9 +43,11 @@ import com.keyful.app.domain.*
 import com.keyful.app.ui.QVaultViewModel
 import com.keyful.app.ui.components.*
 import com.keyful.app.ui.print.CardPrintDocumentAdapter
+import com.keyful.app.voicelab.VoicePassPanel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.nio.charset.StandardCharsets
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,6 +62,11 @@ fun QVaultMainScreen(viewModel: QVaultViewModel) {
     val nfcScanState by viewModel.nfcScanState.collectAsState()
     val activeChallengeQr by viewModel.activeChallengeQr.collectAsState()
     val generatedResponseQr by viewModel.generatedResponseQr.collectAsState()
+    val vaultFormat by viewModel.vaultFormat.collectAsState()
+    val voiceSealRequest by viewModel.voiceSealRequest.collectAsState()
+    val voiceExportName by viewModel.voiceExportName.collectAsState()
+    val needVoice = unlockState as? UnlockState.NeedVoice
+    val voicePanelOpen = needVoice != null || voiceSealRequest != null
 
     var selectedTab by remember { mutableStateOf(0) }
     var focusedCellIndex by remember { mutableStateOf<Int?>(null) }
@@ -68,6 +75,21 @@ fun QVaultMainScreen(viewModel: QVaultViewModel) {
     val context = LocalContext.current
     val vaultsDir = remember { java.io.File(context.filesDir, "vaults").apply { mkdirs() } }
     val recoveredDir = remember { java.io.File(context.filesDir, "recovered").apply { mkdirs() } }
+
+    // QV6/QV7 export: the voice step seals first, then the picker only writes finished bytes,
+    // so cancelling never leaves an empty file behind.
+    val voiceExportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri: Uri? ->
+        val os = uri?.let { runCatching { context.contentResolver.openOutputStream(it) }.getOrNull() }
+        if (os == null) viewModel.cancelVoiceExport() else viewModel.writeVoiceExport(os)
+    }
+    LaunchedEffect(voiceExportName) {
+        voiceExportName?.let {
+            viewModel.voiceExportLaunched()
+            voiceExportLauncher.launch(it)
+        }
+    }
 
     // Dialogs for NFC and Wireless Ephemeral Handshake.
     // The chip cannot be opened without the card details, so they are collected first and
@@ -108,7 +130,7 @@ fun QVaultMainScreen(viewModel: QVaultViewModel) {
 
     Scaffold(
         topBar = {
-            if (focusedCellIndex == null) {
+            if (focusedCellIndex == null && !voicePanelOpen) {
                 TopAppBar(
                     title = {
                         Column {
@@ -143,7 +165,7 @@ fun QVaultMainScreen(viewModel: QVaultViewModel) {
             }
         },
         bottomBar = {
-            if (focusedCellIndex == null) {
+            if (focusedCellIndex == null && !voicePanelOpen) {
                 NavigationBar {
                     NavigationBarItem(
                         selected = selectedTab == 0,
@@ -167,12 +189,13 @@ fun QVaultMainScreen(viewModel: QVaultViewModel) {
             }
         }
     ) { padding ->
-        val effectivePadding = if (focusedCellIndex != null) PaddingValues(0.dp) else padding
+        val effectivePadding = if (focusedCellIndex != null || voicePanelOpen) PaddingValues(0.dp) else padding
         Box(modifier = Modifier.padding(effectivePadding)) {
             when (selectedTab) {
                 0 -> UnlockScreen(
                     challenge = challenge,
                     unlockState = unlockState,
+                    vaultFormat = vaultFormat,
                     activeVaultName = activeVaultName,
                     loadedVaultCardFp = loadedVaultCardFp,
                     activeCardFp = card?.fingerprint,
@@ -204,6 +227,9 @@ fun QVaultMainScreen(viewModel: QVaultViewModel) {
                         viewModel.sealWithCivilId(bytes, type, name, if (os == null) vaultsDir else null, os)
                     },
                     onRestoreCardToRam = { viewModel.restoreCardToRam() },
+                    onVoiceSeal = { bytes, type, name, format, cells, toSaf, burn ->
+                        viewModel.requestVoiceSeal(bytes, type, name, format, cells, toSaf, burn)
+                    },
                     onTestUnseal = { name, bytes ->
                         viewModel.setLoadedVault(name, bytes)
                         selectedTab = 0
@@ -221,6 +247,29 @@ fun QVaultMainScreen(viewModel: QVaultViewModel) {
                     onDeleteSealedCard = { viewModel.deleteSealedCard(context.filesDir) }
                 )
             }
+
+            // QV6/QV7 voice step, drawn over the tabs so what they hold survives it.
+            if (needVoice != null) {
+                VoicePassPanel(
+                    sealing = false,
+                    withPass = needVoice.withPass,
+                    intro = "✓ The cells opened their lock. Now your voice" +
+                        (if (needVoice.withPass) " and passphrase" else "") + " — they are part of this vault's key.",
+                    onSubmit = { voice, pass -> viewModel.openVoiceVault(voice, pass) },
+                    onClose = { done -> if (!done) viewModel.cancelVoiceUnlock() }
+                )
+            } else voiceSealRequest?.let { req ->
+                val withPass = req.format == VoiceVault.QV7
+                VoicePassPanel(
+                    sealing = true,
+                    withPass = withPass,
+                    intro = "${req.format}: to open this vault you will type ${req.cells} cells from your paper card, " +
+                        "then say 5 words" + (if (withPass) " and type your passphrase" else "") +
+                        ". Your voice is never stored — only locks made from it.",
+                    onSubmit = { voice, pass -> viewModel.sealWithVoice(voice, pass, vaultsDir) },
+                    onClose = { viewModel.endVoiceSeal() }
+                )
+            }
         }
     }
 }
@@ -229,6 +278,7 @@ fun QVaultMainScreen(viewModel: QVaultViewModel) {
 fun UnlockScreen(
     challenge: List<ChallengeItem>,
     unlockState: UnlockState,
+    vaultFormat: String,
     activeVaultName: String?,
     loadedVaultCardFp: String?,
     activeCardFp: String?,
@@ -255,13 +305,15 @@ fun UnlockScreen(
     var savedPath by remember { mutableStateOf<String?>(null) }
     var isGlobalRevealed by remember { mutableStateOf(false) }
     val filledCount = challenge.count { it.value.length == 4 && it.isValid }
+    val allFilled = challenge.isNotEmpty() && filledCount == challenge.size
+    val voiceFormat = VoiceVault.isVoiceFormat(vaultFormat)
 
     BackHandler(enabled = focusedCellIndex != null) {
         onFocusedCellChanged(null)
     }
 
     LaunchedEffect(unlockState) {
-        if (unlockState is UnlockState.Success) {
+        if (unlockState is UnlockState.Success || unlockState is UnlockState.NeedVoice) {
             onFocusedCellChanged(null)
         }
     }
@@ -435,8 +487,8 @@ fun UnlockScreen(
                             }
                         }
 
-                        // Prominent Unseal button if all 15 cells are completed!
-                        if (filledCount == 15) {
+                        // Prominent Unseal button once every challenge cell is completed
+                        if (allFilled) {
                             Spacer(modifier = Modifier.height(20.dp))
                             Button(
                                 onClick = onUnseal,
@@ -452,7 +504,7 @@ fun UnlockScreen(
                                 Icon(Icons.Default.LockOpen, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    "🔓 All 15 Entered — Unseal Vault Now",
+                                    "🔓 All ${challenge.size} Entered — Unseal Vault Now",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 14.sp
                                 )
@@ -525,6 +577,15 @@ fun UnlockScreen(
                             fontWeight = FontWeight.Bold,
                             style = MaterialTheme.typography.titleSmall
                         )
+                        if (activeVaultName != null && voiceFormat) {
+                            Text(
+                                "🎙 $vaultFormat · ${challenge.size} cells + voice" +
+                                    if (vaultFormat == VoiceVault.QV7) " + passphrase" else "",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                         if (activeVaultName != null) {
                             if (unlockState is UnlockState.Success) {
                                 Text(
@@ -540,7 +601,7 @@ fun UnlockScreen(
                                 val label = if (matchesRam) {
                                     "Sealed with Active Card: $loadedVaultCardFp ✓"
                                 } else if (matchesSealed) {
-                                    "Sealed with Civil ID Card: $loadedVaultCardFp ✓ (Tap Civil ID to Unseal)"
+                                    "Sealed with Civil ID Card: $loadedVaultCardFp ✓" + if (voiceFormat) "" else " (Tap Civil ID to Unseal)"
                                 } else {
                                     "Sealed with Card: $loadedVaultCardFp ⚠️ (Requires Card $loadedVaultCardFp)"
                                 }
@@ -552,7 +613,7 @@ fun UnlockScreen(
                                 )
                             } else {
                                 Text(
-                                    "Ready to decrypt with 15 cells",
+                                    if (voiceFormat) "Ready: ${challenge.size} cells, then your voice" else "Ready to decrypt with 15 cells",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = Color.Gray
                                 )
@@ -586,7 +647,7 @@ fun UnlockScreen(
         }
 
         // Civil ID Hardware Quick-Unseal Banner (Zero Typing)
-        if (sealedCardFp != null && activeVaultName != null && unlockState !is UnlockState.Success) {
+        if (sealedCardFp != null && activeVaultName != null && !voiceFormat && unlockState !is UnlockState.Success) {
             Spacer(modifier = Modifier.height(6.dp))
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -829,7 +890,7 @@ fun UnlockScreen(
             }
         }
 
-        // 15 Interactive Cell Boxes Grid Header
+        // Interactive Cell Boxes Grid Header
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -838,7 +899,7 @@ fun UnlockScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                "15 Challenge Cells ($filledCount/15)",
+                "${challenge.size} Challenge Cells ($filledCount/${challenge.size})",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary
@@ -863,7 +924,7 @@ fun UnlockScreen(
             }
         }
 
-        // 15 Interactive Cell Boxes Grid
+        // Interactive Cell Boxes Grid
         LazyVerticalGrid(
             columns = GridCells.Fixed(3),
             modifier = Modifier
@@ -919,21 +980,21 @@ fun UnlockScreen(
                     .height(46.dp),
                 shape = RoundedCornerShape(10.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (filledCount == 15) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor = if (filledCount == 15) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                    containerColor = if (allFilled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = if (allFilled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             ) {
                 Icon(
-                    if (filledCount == 15) Icons.Default.LockOpen else Icons.Default.Lock,
+                    if (allFilled) Icons.Default.LockOpen else Icons.Default.Lock,
                     contentDescription = null,
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    if (filledCount == 15) {
+                    if (allFilled) {
                         if (activeVaultName != null) "🔓 Unseal Vault" else "🔓 Verify Key"
                     } else {
-                        "Unseal ($filledCount/15)"
+                        "Unseal ($filledCount/${challenge.size})"
                     },
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.sp
@@ -955,6 +1016,7 @@ fun SealScreen(
     onSealFileStream: (ByteArray, String, java.io.OutputStream, Boolean) -> Unit,
     onSealWithCivilId: ((ByteArray, String, String?, java.io.OutputStream?) -> Unit)? = null,
     onRestoreCardToRam: (() -> Unit)? = null,
+    onVoiceSeal: ((ByteArray, String, String?, String, Int, Boolean, Boolean) -> Unit)? = null,
     onTestUnseal: ((String, ByteArray) -> Unit)? = null,
     onGoToCardSlips: (() -> Unit)? = null
 ) {
@@ -1001,6 +1063,11 @@ fun SealScreen(
     var selectedFileName by remember { mutableStateOf<String?>(null) }
     var selectedFileBytes by remember { mutableStateOf<ByteArray?>(null) }
     var burnAfterSeal by remember { mutableStateOf(false) }
+    // QV5 = 15 cells; QV6 = N cells + voice; QV7 = N cells + voice + passphrase
+    var format by remember { mutableStateOf(QVaultEngine.MAGIC) }
+    var voiceCells by remember { mutableStateOf(VoiceVault.MIN_CELLS.toFloat()) }
+    val cellCount = voiceCells.roundToInt()
+    val voiceFormat = card != null && VoiceVault.isVoiceFormat(format)
 
     val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -1060,7 +1127,62 @@ fun SealScreen(
     ) {
         item {
             Text("Seal Secret Vault", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text("Encrypt messages or files into AES-256-GCM .qv5 vaults using your card.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            Text("Encrypt messages or files into AES-256-GCM vaults: .qv5 (cells), .qv6 (cells + voice), .qv7 (cells + voice + passphrase).", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+        }
+
+        // Vault type: which factors open it
+        if (card != null) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("Vault type", fontWeight = FontWeight.Bold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf(QVaultEngine.MAGIC, VoiceVault.QV6, VoiceVault.QV7).forEach { f ->
+                                FilterChip(
+                                    selected = format == f,
+                                    onClick = { format = f },
+                                    label = { Text(f, fontWeight = FontWeight.Bold) }
+                                )
+                            }
+                        }
+                        Text(
+                            when (format) {
+                                VoiceVault.QV6 -> "Opens with $cellCount cells from the paper card + your voice."
+                                VoiceVault.QV7 -> "Opens with $cellCount cells from the paper card + your voice + a passphrase."
+                                else -> "Opens with 15 cells from the paper card (13 + 2 typo checks)."
+                            },
+                            fontSize = 12.sp
+                        )
+                        if (voiceFormat) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text("Cells to type when opening: $cellCount", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Slider(
+                                value = voiceCells,
+                                onValueChange = { voiceCells = it },
+                                valueRange = VoiceVault.MIN_CELLS.toFloat()..VoiceVault.MAX_CELLS.toFloat(),
+                                steps = VoiceVault.MAX_CELLS - VoiceVault.MIN_CELLS - 1
+                            )
+                            Text(
+                                if (format == VoiceVault.QV6) {
+                                    "No passphrase: anyone holding your paper card AND a copy of this file can brute-force the voice part on a computer. Pick QV7 for secrets that matter."
+                                } else {
+                                    "Cells, voice and passphrase are all part of the key. There is no reset: forget the passphrase and this vault stays shut."
+                                },
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                "Your voice is part of the key: if it changes for good, this vault cannot be opened. Keep a QV5 copy of anything you cannot lose.",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                }
+            }
         }
 
         // Active Card & One-shot Seal & Burn option
@@ -1199,7 +1321,11 @@ fun SealScreen(
                             Button(
                                 onClick = {
                                     if (secretText.isNotBlank()) {
-                                        exportTextLauncher.launch("secret_message.qv5")
+                                        if (voiceFormat) {
+                                            onVoiceSeal?.invoke(secretText.toByteArray(StandardCharsets.UTF_8), "text", null, format, cellCount, true, burnAfterSeal)
+                                        } else {
+                                            exportTextLauncher.launch("secret_message.qv5")
+                                        }
                                     }
                                 },
                                 modifier = Modifier.weight(1f),
@@ -1212,7 +1338,11 @@ fun SealScreen(
                             OutlinedButton(
                                 onClick = {
                                     if (secretText.isNotBlank()) {
-                                        onSealText(secretText, burnAfterSeal)
+                                        if (voiceFormat) {
+                                            onVoiceSeal?.invoke(secretText.toByteArray(StandardCharsets.UTF_8), "text", null, format, cellCount, false, burnAfterSeal)
+                                        } else {
+                                            onSealText(secretText, burnAfterSeal)
+                                        }
                                     }
                                 },
                                 modifier = Modifier.weight(1f),
@@ -1284,7 +1414,11 @@ fun SealScreen(
                             if (card != null) {
                                 Button(
                                     onClick = {
-                                        exportFileLauncher.launch("${name}.qv5")
+                                        if (voiceFormat) {
+                                            onVoiceSeal?.invoke(bytes, "file", name, format, cellCount, true, burnAfterSeal)
+                                        } else {
+                                            exportFileLauncher.launch("${name}.qv5")
+                                        }
                                     },
                                     modifier = Modifier.weight(1f)
                                 ) {
@@ -1294,7 +1428,11 @@ fun SealScreen(
                                 }
                                 OutlinedButton(
                                     onClick = {
-                                        onSealFile(bytes, name, burnAfterSeal)
+                                        if (voiceFormat) {
+                                            onVoiceSeal?.invoke(bytes, "file", name, format, cellCount, false, burnAfterSeal)
+                                        } else {
+                                            onSealFile(bytes, name, burnAfterSeal)
+                                        }
                                     },
                                     modifier = Modifier.weight(1f)
                                 ) {
@@ -1521,7 +1659,7 @@ fun CardSlipsScreen(
             Spacer(modifier = Modifier.height(12.dp))
             Text(
                 "Your recovery card is designed to live solely on physical paper slips or bound to your physical government Civil ID NFC chip.\n\n" +
-                "• Unlocking vaults NEVER requires a card in memory (you enter 15 challenge cells or tap your Civil ID).\n" +
+                "• Unlocking vaults NEVER requires a card in memory (you enter the challenge cells from paper or tap your Civil ID).\n" +
                 "• To create vaults or print a new paper card, generate one below. After printing or sealing, burn it from RAM.",
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center,

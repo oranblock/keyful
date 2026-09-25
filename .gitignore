@@ -23,3 +23,5 @@ releases/
 .idea/
 *.iml
 .DS_Store
+**/assets/model/
+**/assets/spk/

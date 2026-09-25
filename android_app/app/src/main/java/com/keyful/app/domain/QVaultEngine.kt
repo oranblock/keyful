@@ -240,7 +240,9 @@ object QVaultEngine {
         metaType: String,
         metaName: String?,
         mk: ByteArray,
-        cardFp: String
+        cardFp: String,
+        magic: String = MAGIC,
+        extraHeader: JSONObject? = null
     ): ByteArray {
         val salt = ByteArray(16).apply { rng.nextBytes(this) }
         val base = ByteArray(8).apply { rng.nextBytes(this) }
@@ -276,7 +278,7 @@ object QVaultEngine {
         val n = chunks.size
 
         val hdr = JSONObject()
-        hdr.put("magic", MAGIC)
+        hdr.put("magic", magic)
         hdr.put("version", VERSION)
         hdr.put("cipher", "AES-256-GCM")
         hdr.put("kdf", "SHAKE256")
@@ -286,6 +288,8 @@ object QVaultEngine {
         hdr.put("chunks", n)
         hdr.put("salt", Base64.getEncoder().encodeToString(salt))
         hdr.put("base", Base64.getEncoder().encodeToString(base))
+        // QV6/QV7 carry their lock sets here, so every chunk authenticates them too.
+        extraHeader?.keys()?.forEach { hdr.put(it, extraHeader.get(it)) }
 
         val aad0 = hdr.toString().toByteArray(StandardCharsets.UTF_8)
         val key = kdf(mk, salt)

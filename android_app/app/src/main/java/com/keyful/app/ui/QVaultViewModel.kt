@@ -20,6 +20,7 @@ class QVaultViewModel : ViewModel() {
 
     companion object {
         private const val TAG = "QVault"
+        private const val MAX_VOICE_TRIES = 3
     }
 
     private val _card = MutableStateFlow<VaultCard?>(null)
@@ -98,6 +99,37 @@ class QVaultViewModel : ViewModel() {
     )
     private var pendingSealPayload: PendingSealPayload? = null
 
+    // --- QV6 / QV7: a few paper-card cells + voice (+ passphrase) ---
+    private val _vaultFormat = MutableStateFlow(QVaultEngine.MAGIC)
+    val vaultFormat: StateFlow<String> = _vaultFormat.asStateFlow()
+
+    private var voiceVault: VoiceVault.Parsed? = null
+    private var voiceVaultLock = 0
+    private var cellSecret: ByteArray? = null
+    private var voiceFails = 0
+    private val rng = java.security.SecureRandom()
+
+    data class VoiceSealRequest(
+        val bytes: ByteArray,
+        val metaType: String,
+        val metaName: String?,
+        val format: String,
+        val cells: Int,
+        val toSaf: Boolean,
+        val burn: Boolean
+    ) {
+        val fileName: String
+            get() = (if (metaType == "text") "secret_message" else metaName ?: "file") + "." + format.lowercase()
+    }
+
+    private val _voiceSealRequest = MutableStateFlow<VoiceSealRequest?>(null)
+    val voiceSealRequest: StateFlow<VoiceSealRequest?> = _voiceSealRequest.asStateFlow()
+
+    // Sealed QV6/QV7 bytes waiting for the SAF picker; the name asks the UI to open it.
+    private var voiceExport: Pair<VoiceSealRequest, ByteArray>? = null
+    private val _voiceExportName = MutableStateFlow<String?>(null)
+    val voiceExportName: StateFlow<String?> = _voiceExportName.asStateFlow()
+
     init {
         newChallenge()
     }
@@ -115,6 +147,16 @@ class QVaultViewModel : ViewModel() {
     }
 
     fun newChallenge(avoidSlips: Set<Int> = emptySet()) {
+        wipeCellSecret()
+        val vv = voiceVault
+        if (vv != null) {
+            // QV6/QV7: the challenge is the cell set of one random cell lock in the file.
+            voiceVaultLock = rng.nextInt(vv.cellLocks.size)
+            _challenge.value = VoiceVault.challenge(vv, voiceVaultLock).map { ChallengeItem(CellCoordinate(it.first, it.second)) }
+            _unlockState.value = UnlockState.Idle
+            Log.d(TAG, "Generated fresh ${vv.cells}-cell ${vv.magic} challenge")
+            return
+        }
         val pairs = QVaultEngine.freshChallenge(avoidSlips)
         _challenge.value = pairs.map { ChallengeItem(CellCoordinate(it.first, it.second)) }
         _unlockState.value = UnlockState.Idle
@@ -126,6 +168,10 @@ class QVaultViewModel : ViewModel() {
             _activeVaultName.value = null
             _activeVaultBytes.value = null
             _loadedVaultCardFp.value = null
+            if (voiceVault != null) {
+                loadVoiceVault(null)
+                newChallenge()
+            }
             _unlockState.value = UnlockState.Error("'$name' is empty (0 bytes). A previous export did not finish. Delete this file and seal again.")
             Log.w(TAG, "Rejected empty vault file '$name'")
             return
@@ -147,7 +193,26 @@ class QVaultViewModel : ViewModel() {
             _loadedVaultCardFp.value = null
             Log.e(TAG, "Error parsing loaded vault header")
         }
+        val damaged = loadVoiceVault(bytes)
         newChallenge()
+        damaged?.let { _unlockState.value = UnlockState.Error(it) }
+    }
+
+    /** Parses a QV6/QV7 file (none for QV5). Returns an error message if it is damaged. */
+    private fun loadVoiceVault(bytes: ByteArray?): String? {
+        wipeCellSecret()
+        voiceVault = null
+        var damaged: String? = null
+        if (bytes != null) {
+            try {
+                voiceVault = VoiceVault.parse(bytes)
+            } catch (e: Exception) {
+                damaged = "This vault's voice header is damaged: ${e.message}"
+                Log.e(TAG, "Damaged QV6/QV7 header: ${e.message}")
+            }
+        }
+        _vaultFormat.value = voiceVault?.magic ?: QVaultEngine.MAGIC
+        return damaged
     }
 
     fun clearLoadedVault() {
@@ -156,6 +221,10 @@ class QVaultViewModel : ViewModel() {
         _activeVaultBytes.value = null
         _loadedVaultCardFp.value = null
         _unlockState.value = UnlockState.Idle
+        if (voiceVault != null) {
+            loadVoiceVault(null)
+            newChallenge()
+        }
     }
 
     fun clearDecryptedPayload() {
@@ -178,6 +247,10 @@ class QVaultViewModel : ViewModel() {
         _activeVaultName.value = null
         _activeVaultBytes.value = null
         _loadedVaultCardFp.value = null
+        loadVoiceVault(null)
+        _voiceSealRequest.value = null
+        voiceExport = null
+        _voiceExportName.value = null
         _unlockState.value = UnlockState.Idle
         _challenge.value = emptyList()
     }
@@ -188,12 +261,12 @@ class QVaultViewModel : ViewModel() {
             if (it.value.length < QVaultEngine.CELL_LEN || !it.isValid) (index + 1) else null
         }
         if (missing.isNotEmpty()) {
-            val msg = "Missing ${missing.size} cell(s): ${missing.joinToString(", ") { "#$it" }}. Please enter all 15 cells."
+            val msg = "Missing ${missing.size} cell(s): ${missing.joinToString(", ") { "#$it" }}. Please enter all ${items.size} cells."
             Log.w(TAG, "triggerUnseal rejected: ${missing.size} cells missing")
             _unlockState.value = UnlockState.Error(msg)
             return
         }
-        Log.i(TAG, "triggerUnseal accepted: all 15 cells present")
+        Log.i(TAG, "triggerUnseal accepted: all ${items.size} cells present")
         checkAutoVerify()
     }
 
@@ -208,7 +281,7 @@ class QVaultViewModel : ViewModel() {
             )
             _challenge.value = current
             val filled = current.count { it.value.length == 4 && it.isValid }
-            Log.d(TAG, "Cell #${index + 1} updated ($filled/15 filled)")
+            Log.d(TAG, "Cell #${index + 1} updated ($filled/${current.size} filled)")
             checkAutoVerify()
         }
     }
@@ -219,6 +292,7 @@ class QVaultViewModel : ViewModel() {
         if (!allFilled) {
             return
         }
+        voiceVault?.let { verifyVoiceVaultCells(it, items); return }
 
         viewModelScope.launch {
             _unlockState.value = UnlockState.Verifying
@@ -286,6 +360,165 @@ class QVaultViewModel : ViewModel() {
                 _unlockState.value = UnlockState.Error("Verification error: ${e.message}")
             }
         }
+    }
+
+    private fun wipeCellSecret() {
+        cellSecret?.fill(0)
+        cellSecret = null
+        voiceFails = 0
+    }
+
+    /** QV6/QV7 step 1: the typed cells must open the cell lock this challenge came from. */
+    private fun verifyVoiceVaultCells(vv: VoiceVault.Parsed, items: List<ChallengeItem>) {
+        val lock = voiceVaultLock
+        val typed = items.map { it.value }
+        viewModelScope.launch {
+            _unlockState.value = UnlockState.Verifying
+            val secret = withContext(Dispatchers.Default) { VoiceVault.openCells(vv, lock, typed) }
+            if (voiceVault !== vv || voiceVaultLock != lock) {
+                secret?.fill(0)   // vault or challenge changed while deriving
+                return@launch
+            }
+            if (secret == null) {
+                Log.w(TAG, "${vv.magic}: typed cells did not open their lock")
+                _unlockState.value = UnlockState.TypoDetected(
+                    badIndices = emptyList(),
+                    message = "These ${items.size} cells don't open this vault. Check each one against your paper card."
+                )
+            } else {
+                wipeCellSecret()
+                cellSecret = secret
+                Log.i(TAG, "${vv.magic}: cells opened their lock, voice next")
+                _unlockState.value = UnlockState.NeedVoice(withPass = vv.withPass)
+            }
+        }
+    }
+
+    /**
+     * QV6/QV7 step 2: voice (+ passphrase). true = finished, and unlockState says how
+     * (opened, damaged, or given up after MAX_VOICE_TRIES); false = the lock stayed shut.
+     */
+    suspend fun openVoiceVault(voice: FloatArray, pass: CharArray): Boolean {
+        val vv = voiceVault
+        val cs = cellSecret
+        val vault = _activeVaultBytes.value
+        if (vv == null || cs == null || vault == null) {
+            cancelVoiceUnlock("The voice step expired. Type the cells again.")
+            return true
+        }
+        val opened = try {
+            withContext(Dispatchers.Default) { VoiceVault.open(vault, vv, cs, voice, pass) }
+        } catch (e: Exception) {
+            Log.e(TAG, "${vv.magic}: payload did not decrypt")
+            cancelVoiceUnlock("Decryption failed: the vault file is damaged (${e.message})")
+            return true
+        }
+        if (opened == null) {
+            voiceFails++
+            Log.w(TAG, "${vv.magic}: voice lock stayed shut ($voiceFails/$MAX_VOICE_TRIES)")
+            if (voiceFails >= MAX_VOICE_TRIES) {
+                cancelVoiceUnlock("The voice lock stayed shut $MAX_VOICE_TRIES times. Type the new cells to try again.")
+                return true
+            }
+            return false
+        }
+        wipeCellSecret()
+        _unlockState.value = UnlockState.Success(
+            masterKeyFp = opened.keyFp,
+            metaType = opened.meta.optString("type", "file"),
+            metaName = if (opened.meta.isNull("name")) null else opened.meta.optString("name"),
+            payload = opened.payload
+        )
+        Log.i(TAG, "${vv.magic} vault opened with cells + voice${if (vv.withPass) " + passphrase" else ""}")
+        return true
+    }
+
+    /** Leaves the voice step: forgets the cell secret and asks for fresh cells. */
+    fun cancelVoiceUnlock(reason: String? = null) {
+        if (reason == null && _unlockState.value !is UnlockState.NeedVoice) return
+        newChallenge()
+        reason?.let { _unlockState.value = UnlockState.Error(it) }
+    }
+
+    /** QV6/QV7 seal: the UI shows the voice step while this request is set. */
+    fun requestVoiceSeal(
+        bytes: ByteArray, metaType: String, metaName: String?,
+        format: String, cells: Int, toSaf: Boolean, burn: Boolean
+    ) {
+        if (_card.value == null) {
+            _sealState.value = SealState.Error("No card in memory. Generate or restore a card, then seal again.")
+            return
+        }
+        _voiceSealRequest.value = VoiceSealRequest(bytes, metaType, metaName, format, cells, toSaf, burn)
+    }
+
+    fun endVoiceSeal() {
+        _voiceSealRequest.value = null
+        // Closed mid-derivation (app left): nothing was written.
+        if (_sealState.value is SealState.Sealing) _sealState.value = SealState.Idle
+    }
+
+    /** Voice (+ passphrase) step of a seal. true = sealed: saved, or waiting for the SAF picker. */
+    suspend fun sealWithVoice(voice: FloatArray, pass: CharArray, vaultsDir: File): Boolean {
+        val req = _voiceSealRequest.value ?: return false
+        val currentCard = _card.value ?: return false
+        _sealState.value = SealState.Sealing
+        val sealed = try {
+            withContext(Dispatchers.Default) {
+                VoiceVault.seal(req.bytes, req.metaType, req.metaName, currentCard, req.format, req.cells, voice, pass)
+            }
+        } catch (e: Exception) {
+            _sealState.value = SealState.Error("Sealing failed: ${e.message}")
+            throw e
+        }
+        if (req.toSaf) {
+            voiceExport = Pair(req, sealed)
+            _voiceExportName.value = req.fileName
+        } else {
+            val outFile = File(vaultsDir, req.fileName)
+            withContext(Dispatchers.IO) {
+                if (!vaultsDir.exists()) vaultsDir.mkdirs()
+                outFile.writeBytes(sealed)
+            }
+            finishVoiceSeal(req, outFile.absolutePath, sealed.size)
+        }
+        return true
+    }
+
+    /** The SAF picker is on screen; don't open it again on recomposition. */
+    fun voiceExportLaunched() {
+        _voiceExportName.value = null
+    }
+
+    fun writeVoiceExport(outputStream: java.io.OutputStream) {
+        val (req, sealed) = voiceExport ?: run { closeQuietly(outputStream); return }
+        voiceExport = null
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { outputStream.use { it.write(sealed) } }
+                finishVoiceSeal(req, "Exported via SAF (${req.fileName})", sealed.size)
+            } catch (e: Exception) {
+                closeQuietly(outputStream)
+                _sealState.value = SealState.Error("Export failed: ${e.message}")
+            }
+        }
+    }
+
+    fun cancelVoiceExport() {
+        voiceExport = null
+        _voiceExportName.value = null
+        _sealState.value = SealState.Error("Export cancelled: no file was written.")
+    }
+
+    private fun finishVoiceSeal(req: VoiceSealRequest, where: String, size: Int) {
+        if (req.burn) burnCard()
+        val factors = "${req.cells} cells + voice" + if (req.format == VoiceVault.QV7) " + passphrase" else ""
+        _sealState.value = SealState.Success(
+            fileName = where,
+            size = size,
+            message = "${req.format} vault sealed ($factors)" + if (req.burn) ". Card burned from memory." else ""
+        )
+        Log.i(TAG, "${req.format} vault sealed: $factors")
     }
 
     fun burnCard() {

@@ -33,6 +33,8 @@ sealed interface UnlockState {
             payload.fill(0.toByte())
         }
     }
+    /** QV6/QV7: the typed cells opened their lock; the voice (+ passphrase for QV7) comes next. */
+    data class NeedVoice(val withPass: Boolean) : UnlockState
     data class TypoDetected(val badIndices: List<Int>, val message: String) : UnlockState
     data class Error(val message: String) : UnlockState
 }
