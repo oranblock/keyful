@@ -31,6 +31,9 @@ class VoiceVaultTest {
         }
     }
 
+    private val passportA = ByteArray(32) { (it * 7 + 1).toByte() }
+    private val passportB = ByteArray(32) { (it * 11 + 3).toByte() }
+
     private fun cellsFor(p: VoiceVault.Parsed, lock: Int) = VoiceVault.challenge(p, lock).map { card.cells[it]!! }
     private fun cellSecret(p: VoiceVault.Parsed, lock: Int) = VoiceVault.openCells(p, lock, cellsFor(p, lock))!!
     private fun opposite(v: FloatArray) = FloatArray(v.size) { -v[it] }
@@ -124,6 +127,39 @@ class VoiceVaultTest {
         assertThrows(Exception::class.java) { VoiceVault.open(bad, p, cs, voice, pass) }
     }
 
+    @Test fun passportVaultNeedsTheSamePassport() {
+        val v = VoiceVault.seal(secret, "text", null, card, VoiceVault.QV7, 3, voice, pass, passportA)
+        val p = VoiceVault.parse(v)!!
+        assertTrue(p.withPassport)
+        assertTrue(VoiceVault.passportMatches(p, passportA))
+        assertFalse(VoiceVault.passportMatches(p, passportB))
+        val cs = cellSecret(p, 0)
+        val o = VoiceVault.open(v, p, cs, voice, pass, passportA)
+        assertNotNull(o)
+        assertArrayEquals(secret, o!!.payload)
+        assertNull(VoiceVault.open(v, p, cs, voice, pass, passportB))
+        assertNull(VoiceVault.open(v, p, cs, voice, pass, null))
+    }
+
+    @Test fun strippingThePassportFlagDoesNotSkipThePassport() {
+        val v = VoiceVault.seal(secret, "text", null, card, VoiceVault.QV6, 3, voice, CharArray(0), passportA)
+        val text = String(v, StandardCharsets.ISO_8859_1)
+        val check = VoiceVault.passportCheck(passportA)
+        var stripped = text.replaceFirst(",\"passport\":\"$check\"", "")
+        if (stripped == text) stripped = text.replaceFirst("\"passport\":\"$check\",", "")
+        val forged = stripped.toByteArray(StandardCharsets.ISO_8859_1)
+        assertFalse(forged.contentEquals(v))
+        val p = VoiceVault.parse(forged)!!
+        assertFalse(p.withPassport)
+        assertNull(VoiceVault.open(forged, p, cellSecret(p, 0), voice, CharArray(0)))
+    }
+
+    @Test fun vaultsWithoutPassportIgnoreOne() {
+        val p = VoiceVault.parse(qv6)!!
+        assertFalse(p.withPassport)
+        assertNotNull(VoiceVault.open(qv6, p, cellSecret(p, 0), voice, CharArray(0), passportA))
+    }
+
     @Test fun qv5FilesAreNotVoiceVaults() {
         val qv5 = QVaultEngine.sealPayload(secret, "text", null, QVaultEngine.masterKey(card.coef), card.fingerprint)
         assertNull(VoiceVault.parse(qv5))
@@ -144,6 +180,9 @@ class VoiceVaultTest {
         }
         assertThrows(IllegalArgumentException::class.java) {
             VoiceVault.seal(secret, "text", null, card, VoiceVault.QV7, 3, voice, CharArray(0))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            VoiceVault.seal(secret, "text", null, card, VoiceVault.QV6, 3, voice, CharArray(0), ByteArray(31))
         }
     }
 }

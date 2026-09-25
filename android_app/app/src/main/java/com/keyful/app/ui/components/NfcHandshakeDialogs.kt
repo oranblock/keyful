@@ -29,7 +29,9 @@ import com.keyful.app.nfc.CivilIdChipReader
 @Composable
 fun CardCredentialsDialog(
     onConfirm: (accessKey: CivilIdChipReader.AccessKey, passkey: ByteArray) -> Unit,
-    onCancel: () -> Unit
+    onCancel: () -> Unit,
+    // QV6/QV7 read the passport only as a vault factor; their own locks replace the passkey.
+    askPasskey: Boolean = true
 ) {
     var useCan by remember { mutableStateOf(false) }   // passports print the details, rarely a CAN
     var can by remember { mutableStateOf("") }
@@ -40,7 +42,7 @@ fun CardCredentialsDialog(
 
     val datesLookValid = dateOfBirth.length == 6 && dateOfExpiry.length == 6
     val accessReady = if (useCan) can.isNotBlank() else documentNumber.isNotBlank() && datesLookValid
-    val canConfirm = accessReady && passkey.length >= 6
+    val canConfirm = accessReady && (!askPasskey || passkey.length >= 6)
 
     Dialog(onDismissRequest = onCancel) {
         Card(
@@ -113,21 +115,23 @@ fun CardCredentialsDialog(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
-                HorizontalDivider()
-                Spacer(modifier = Modifier.height(16.dp))
+                if (askPasskey) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    HorizontalDivider()
+                    Spacer(modifier = Modifier.height(16.dp))
 
-                OutlinedTextField(
-                    value = passkey,
-                    onValueChange = { passkey = it },
-                    label = { Text("Your passkey") },
-                    supportingText = {
-                        Text("At least 6 characters. Without this, anyone holding your passport could open the vault.")
-                    },
-                    visualTransformation = PasswordVisualTransformation(),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                    OutlinedTextField(
+                        value = passkey,
+                        onValueChange = { passkey = it },
+                        label = { Text("Your passkey") },
+                        supportingText = {
+                            Text("At least 6 characters. Without this, anyone holding your passport could open the vault.")
+                        },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(20.dp))
                 Row(
@@ -153,7 +157,7 @@ fun CardCredentialsDialog(
                         enabled = canConfirm,
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("Scan card")
+                        Text("Scan passport")
                     }
                 }
             }

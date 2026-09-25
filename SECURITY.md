@@ -13,6 +13,7 @@ Keyful is an **unaudited prototype**. This file says what to attack, what's alre
 - Argon2id device-seal parameters and the passkey path.
 - Key material lifetime in memory: RAM-wipe on background/idle, and any place plaintext or coefficients outlive their use.
 - Any accidental data egress (should be impossible with no `INTERNET` permission — prove otherwise).
+- **Passport binding** (`nfc/CivilIdChipReader.kt`): PACE/BAC with the passport details, DG15, Active Authentication. Can a copied chip, or a replayed response, pass as the real one?
 - **QV6 / QV7 vaults** (`domain/VoiceVault.kt`, `voicelab/VoiceLock.kt`) — see [QV6 / QV7](#qv6--qv7-cells--voice--passphrase) below. Open one without the right cells, voice or passphrase. Relabel, splice or reorder its lock sets. Find a way to get the voice or passphrase check without first having the cell secret.
 
 ## Known limitations (not new findings)
@@ -38,14 +39,15 @@ New and less tested than QV5. When you seal, you choose N cells (3 to 13) and a 
 
 ```
 cellSecret, voiceSecret = 32 random bytes each
-vaultKey    = SHAKE256("QV67-KEY" ‖ magic ‖ cellSecret ‖ voiceSecret)
+passportId  = SHA-256(tag ‖ DG15 public key), only when the vault uses a passport
+vaultKey    = SHAKE256("QV67-KEY" ‖ magic ‖ cellSecret ‖ voiceSecret [‖ passportId])
 cell lock i = AES-GCM(Argon2id(values of cell subset S_i ‖ i, salt_i, 8 MiB, 1 pass), cellSecret)
               32 locks, each S_i a random N-cell subset of the 140
 voice lock  = VoiceLock: sample-then-lock fuzzy extractor (Canetti et al.)
               over a 128-d Vosk x-vector (vosk-model-spk-0.4):
               pool = 64 strongest dims, sign = bit; 64 locks, each over a random 12-dim subset
               lock key = Argon2id(kFactor ‖ bits ‖ j, salt_j, 8 MiB, 1 pass)
-              kFactor  = SHA-256(tag ‖ kPass ‖ cellSecret)
+              kFactor  = SHA-256(tag ‖ kPass ‖ cellSecret [‖ passportId])
               kPass    = Argon2id(passphrase, 64 MiB, 3 passes), or zeros for QV6
 payload     = the QV5 chunked AES-256-GCM container keyed by vaultKey;
               both lock sets sit in its header, which every chunk authenticates
@@ -54,9 +56,10 @@ payload     = the QV5 chunked AES-256-GCM container keyed by vaultKey;
 **Unlock:**
 1. The app picks one cell lock at random and asks for its N cells.
 2. The right cells give `cellSecret`.
-3. You say 5 random words from a 24-word list. Speech recognition must hear the exact word, and 3 misses bring new words.
-4. The whole answer becomes the voiceprint.
-5. The voiceprint and the passphrase must open one voice lock.
+3. If the vault uses a passport, you tap it. The chip is opened over PACE or BAC with the passport details. It must sign a fresh challenge with its Active Authentication key. Its DG15 key digest gives `passportId`. The header holds a 16-bit check of `passportId` that catches a wrong passport at the tap.
+4. You say 5 random words from a 24-word list. Speech recognition must hear the exact word, and 3 misses bring new words.
+5. The whole answer becomes the voiceprint.
+6. The voiceprint, the passphrase and the passport must open one voice lock.
 
 Every factor is key material. The voiceprint is never stored.
 
@@ -68,6 +71,8 @@ Every factor is key material. The voiceprint is never stored.
 - **No voice, no vault.** A lasting change in your voice makes a QV6/QV7 vault unopenable, and so does a different speaker model. QV6/QV7 have no card-only recovery. `qvault5.py` cannot open them. Keep a QV5 copy of anything you cannot lose.
 - **Shoulder-surfing the cells** reveals the cell set of one lock. Such an attacker still needs the voice, plus the passphrase for QV7.
 - **The file shows which 64 of the 128 voiceprint dimensions are strongest.** It does not show their signs.
+- **The passport factor is a public key, not a secret.** Its digest is key material, so an attacker who has never read your chip cannot open the vault. But anyone who has held your passport, with its printed details, can read DG15 and compute `passportId` offline. Active Authentication proves the real chip is present, but that check runs in the app, and an offline attacker skips the app. The 16-bit check in the header also weakly links a vault to a list of known passports.
+- **Kuwait Civil IDs cannot bind.** Their applets refuse any reader without PACI keys (6982), and their ISO 14443-B PUPI changes on every tap. The values that stay stable are identical on every card. The app therefore asks for a passport.
 
 ## Mitigations already in place
 

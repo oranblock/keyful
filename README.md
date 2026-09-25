@@ -26,13 +26,13 @@ You choose the type when you seal:
 
 | Type | To open | Notes |
 |---|---|---|
-| `.qv5` | 15 cells (13 + 2 typo checks) | Card alone. Recoverable with `qvault5.py`. |
-| `.qv6` | N cells (3–13, chosen at seal) + your voice | No passphrase. Weak if the card is stolen (see below). |
-| `.qv7` | N cells + your voice + a passphrase | Strongest. |
+| `.qv5` | 15 cells (13 + 2 typo checks), or a passport tap on the phone the card was bound to | Card alone. Recoverable with `qvault5.py`. |
+| `.qv6` | N cells (3–13, chosen at seal) + your voice + your passport (optional) | No passphrase. Weak if the card is stolen (see below). |
+| `.qv7` | N cells + your voice + a passphrase + your passport (optional) | Strongest. |
 
 For QV6/QV7:
 - The file holds 32 locks. Each lock is built from a different random set of N cells. At unlock, the app asks for the cells of one lock, chosen at random.
-- The right cells open that lock. Then you say 5 random words (plus the passphrase for QV7).
+- The right cells open that lock. If the vault uses a passport, you tap it next. Then you say 5 random words (plus the passphrase for QV7).
 - The voice becomes key material through a fuzzy extractor. It is not compared against a stored voiceprint, and no voiceprint is ever stored.
 - All factors are needed to derive the key. Details are in [SECURITY.md](SECURITY.md#qv6--qv7-cells--voice--passphrase).
 
@@ -47,6 +47,7 @@ For QV6/QV7:
 | Device seal | Argon2id (32 MB, 3 iterations) |
 | QV6/QV7 cell locks | 32 random N-cell subsets, Argon2id (8 MiB) + AES-256-GCM |
 | QV6/QV7 voice lock | Sample-then-lock fuzzy extractor over a Vosk x-vector (64 locks × 12 bits), Argon2id; passphrase Argon2id (64 MiB, 3 passes) |
+| Passport | ICAO 9303 chip over PACE (BAC fallback) with the passport details; identity = digest of the DG15 Active Authentication key; the chip must sign a fresh challenge |
 | Hardening | `FLAG_SECURE`, `allowBackup=false`, RAM wipe on background + 3-min idle |
 
 ## Security model
@@ -58,6 +59,7 @@ For QV6/QV7:
 - **QV5 is single factor.** Whoever has 13 cells can open a matching `.qv5`. A card + a vault file = access.
 - **QV7 adds two more factors: your voice and a passphrase.** With QV7, a card + a vault file is not enough. The passphrase carries the weight; the voice adds about 12 bits.
 - **QV6 is card + voice only.** Someone holding your card and a copy of the file can brute-force the voice part offline in about a minute. A voice is also not a secret: any recording of you works offline. Use QV7 for anything that matters.
+- **The passport is a "something you have" factor, not a secret.** It stops anyone who has never read your passport chip. Its identity is a public key, which anyone holding the passport can read. The genuine-chip check is done by the app, not by the math. Kuwait Civil IDs cannot be used: their chip refuses every reader without government keys and shows a new random ID on every tap.
 - **No voice, no vault.** A QV6/QV7 vault needs your voice and the same speaker model (`vosk-model-spk-0.4`). There is no card-only recovery. Keep a QV5 copy of anything you cannot lose.
 - **Offline means offline.** Lose the card and the vault is unrecoverable. That is the design, not a bug.
 

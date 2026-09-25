@@ -33,7 +33,9 @@ sealed interface UnlockState {
             payload.fill(0.toByte())
         }
     }
-    /** QV6/QV7: the typed cells opened their lock; the voice (+ passphrase for QV7) comes next. */
+    /** QV6/QV7 with passport: the cells opened their lock; the passport tap comes next. */
+    object NeedPassport : UnlockState
+    /** QV6/QV7: the cells (and passport) opened their locks; the voice (+ passphrase for QV7) comes next. */
     data class NeedVoice(val withPass: Boolean) : UnlockState
     data class TypoDetected(val badIndices: List<Int>, val message: String) : UnlockState
     data class Error(val message: String) : UnlockState
@@ -59,6 +61,8 @@ enum class NfcAction {
     UNSEAL_VAULT,
     SIGN_CHALLENGE,
     RESTORE_CARD_TO_RAM,
-    SEAL_VAULT_PAYLOAD
+    SEAL_VAULT_PAYLOAD,
+    /** QV6/QV7: read the passport chip id as a key factor of the vault being sealed or opened. */
+    VAULT_PASSPORT
 }
 

@@ -107,6 +107,15 @@ class QVaultViewModel : ViewModel() {
     private var voiceVaultLock = 0
     private var cellSecret: ByteArray? = null
     private var voiceFails = 0
+
+    // QV6/QV7 passport factor: which flow the passport tap feeds, and the chip id it gave.
+    private enum class PassportFor { SEAL, UNLOCK }
+    private var passportFor: PassportFor? = null
+    private var voicePassportId: ByteArray? = null
+    private var pendingVoiceSeal: VoiceSealRequest? = null
+
+    private val _vaultPassport = MutableStateFlow(false)
+    val vaultPassport: StateFlow<Boolean> = _vaultPassport.asStateFlow()
     private val rng = java.security.SecureRandom()
 
     data class VoiceSealRequest(
@@ -116,7 +125,8 @@ class QVaultViewModel : ViewModel() {
         val format: String,
         val cells: Int,
         val toSaf: Boolean,
-        val burn: Boolean
+        val burn: Boolean,
+        val passport: Boolean
     ) {
         val fileName: String
             get() = (if (metaType == "text") "secret_message" else metaName ?: "file") + "." + format.lowercase()
@@ -212,6 +222,7 @@ class QVaultViewModel : ViewModel() {
             }
         }
         _vaultFormat.value = voiceVault?.magic ?: QVaultEngine.MAGIC
+        _vaultPassport.value = voiceVault?.withPassport == true
         return damaged
     }
 
@@ -249,6 +260,7 @@ class QVaultViewModel : ViewModel() {
         _loadedVaultCardFp.value = null
         loadVoiceVault(null)
         _voiceSealRequest.value = null
+        pendingVoiceSeal = null
         voiceExport = null
         _voiceExportName.value = null
         _unlockState.value = UnlockState.Idle
@@ -366,6 +378,11 @@ class QVaultViewModel : ViewModel() {
         cellSecret?.fill(0)
         cellSecret = null
         voiceFails = 0
+        if (passportFor != PassportFor.SEAL) {
+            passportFor = null
+            voicePassportId?.fill(0)
+            voicePassportId = null
+        }
     }
 
     /** QV6/QV7 step 1: the typed cells must open the cell lock this challenge came from. */
@@ -388,8 +405,15 @@ class QVaultViewModel : ViewModel() {
             } else {
                 wipeCellSecret()
                 cellSecret = secret
-                Log.i(TAG, "${vv.magic}: cells opened their lock, voice next")
-                _unlockState.value = UnlockState.NeedVoice(withPass = vv.withPass)
+                if (vv.withPassport) {
+                    Log.i(TAG, "${vv.magic}: cells opened their lock, passport next")
+                    passportFor = PassportFor.UNLOCK
+                    _unlockState.value = UnlockState.NeedPassport
+                    startNfcScan(NfcAction.VAULT_PASSPORT)
+                } else {
+                    Log.i(TAG, "${vv.magic}: cells opened their lock, voice next")
+                    _unlockState.value = UnlockState.NeedVoice(withPass = vv.withPass)
+                }
             }
         }
     }
@@ -406,8 +430,13 @@ class QVaultViewModel : ViewModel() {
             cancelVoiceUnlock("The voice step expired. Type the cells again.")
             return true
         }
+        val pid = voicePassportId
+        if (vv.withPassport && pid == null) {
+            cancelVoiceUnlock("The passport step expired. Type the cells again.")
+            return true
+        }
         val opened = try {
-            withContext(Dispatchers.Default) { VoiceVault.open(vault, vv, cs, voice, pass) }
+            withContext(Dispatchers.Default) { VoiceVault.open(vault, vv, cs, voice, pass, pid) }
         } catch (e: Exception) {
             Log.e(TAG, "${vv.magic}: payload did not decrypt")
             cancelVoiceUnlock("Decryption failed: the vault file is damaged (${e.message})")
@@ -429,13 +458,14 @@ class QVaultViewModel : ViewModel() {
             metaName = if (opened.meta.isNull("name")) null else opened.meta.optString("name"),
             payload = opened.payload
         )
-        Log.i(TAG, "${vv.magic} vault opened with cells + voice${if (vv.withPass) " + passphrase" else ""}")
+        Log.i(TAG, "${vv.magic} vault opened with cells${if (vv.withPassport) " + passport" else ""} + voice${if (vv.withPass) " + passphrase" else ""}")
         return true
     }
 
     /** Leaves the voice step: forgets the cell secret and asks for fresh cells. */
     fun cancelVoiceUnlock(reason: String? = null) {
-        if (reason == null && _unlockState.value !is UnlockState.NeedVoice) return
+        val state = _unlockState.value
+        if (reason == null && state !is UnlockState.NeedVoice && state !is UnlockState.NeedPassport) return
         newChallenge()
         reason?.let { _unlockState.value = UnlockState.Error(it) }
     }
@@ -443,17 +473,66 @@ class QVaultViewModel : ViewModel() {
     /** QV6/QV7 seal: the UI shows the voice step while this request is set. */
     fun requestVoiceSeal(
         bytes: ByteArray, metaType: String, metaName: String?,
-        format: String, cells: Int, toSaf: Boolean, burn: Boolean
+        format: String, cells: Int, toSaf: Boolean, burn: Boolean, passport: Boolean
     ) {
         if (_card.value == null) {
             _sealState.value = SealState.Error("No card in memory. Generate or restore a card, then seal again.")
             return
         }
-        _voiceSealRequest.value = VoiceSealRequest(bytes, metaType, metaName, format, cells, toSaf, burn)
+        val req = VoiceSealRequest(bytes, metaType, metaName, format, cells, toSaf, burn, passport)
+        voicePassportId?.fill(0)
+        voicePassportId = null
+        if (passport) {
+            // Passport first: if the tap fails, no voice effort is wasted.
+            pendingVoiceSeal = req
+            passportFor = PassportFor.SEAL
+            startNfcScan(NfcAction.VAULT_PASSPORT)
+        } else {
+            _voiceSealRequest.value = req
+        }
+    }
+
+    /** The passport tap for a QV6/QV7 seal or unlock gave this chip id. */
+    private fun onVaultPassport(chipId: ByteArray) {
+        when (passportFor) {
+            PassportFor.UNLOCK -> {
+                val vv = voiceVault
+                if (vv == null || cellSecret == null) {
+                    _nfcScanState.value = NfcScanUiState.Error("The unlock expired. Type the cells again.")
+                    return
+                }
+                if (!VoiceVault.passportMatches(vv, chipId)) {
+                    Log.w(TAG, "${vv.magic}: a different passport was tapped")
+                    _nfcScanState.value = NfcScanUiState.Error("This vault was sealed with a different passport.")
+                    return   // closing the dialog cancels the unlock (cancelNfcScan)
+                }
+                passportFor = null
+                voicePassportId = chipId.copyOf()
+                _nfcScanState.value = NfcScanUiState.Idle
+                Log.i(TAG, "${vv.magic}: passport matched, voice next")
+                _unlockState.value = UnlockState.NeedVoice(withPass = vv.withPass)
+            }
+            PassportFor.SEAL -> {
+                val req = pendingVoiceSeal
+                if (req == null) {
+                    _nfcScanState.value = NfcScanUiState.Error("Nothing is waiting to be sealed.")
+                    return
+                }
+                passportFor = null
+                pendingVoiceSeal = null
+                voicePassportId = chipId.copyOf()
+                _nfcScanState.value = NfcScanUiState.Idle
+                Log.i(TAG, "${req.format}: passport read for sealing, voice next")
+                _voiceSealRequest.value = req
+            }
+            null -> _nfcScanState.value = NfcScanUiState.Error("No vault is waiting for a passport.")
+        }
     }
 
     fun endVoiceSeal() {
         _voiceSealRequest.value = null
+        voicePassportId?.fill(0)
+        voicePassportId = null
         // Closed mid-derivation (app left): nothing was written.
         if (_sealState.value is SealState.Sealing) _sealState.value = SealState.Idle
     }
@@ -463,9 +542,11 @@ class QVaultViewModel : ViewModel() {
         val req = _voiceSealRequest.value ?: return false
         val currentCard = _card.value ?: return false
         _sealState.value = SealState.Sealing
+        val pid = voicePassportId
+        if (req.passport && pid == null) return false
         val sealed = try {
             withContext(Dispatchers.Default) {
-                VoiceVault.seal(req.bytes, req.metaType, req.metaName, currentCard, req.format, req.cells, voice, pass)
+                VoiceVault.seal(req.bytes, req.metaType, req.metaName, currentCard, req.format, req.cells, voice, pass, pid)
             }
         } catch (e: Exception) {
             _sealState.value = SealState.Error("Sealing failed: ${e.message}")
@@ -512,7 +593,8 @@ class QVaultViewModel : ViewModel() {
 
     private fun finishVoiceSeal(req: VoiceSealRequest, where: String, size: Int) {
         if (req.burn) burnCard()
-        val factors = "${req.cells} cells + voice" + if (req.format == VoiceVault.QV7) " + passphrase" else ""
+        val factors = "${req.cells} cells" + (if (req.passport) " + passport" else "") + " + voice" +
+            if (req.format == VoiceVault.QV7) " + passphrase" else ""
         _sealState.value = SealState.Success(
             fileName = where,
             size = size,
@@ -793,6 +875,7 @@ class QVaultViewModel : ViewModel() {
             NfcAction.SIGN_CHALLENGE -> "Hold your passport against the back of the phone to sign the wireless handshake challenge."
             NfcAction.RESTORE_CARD_TO_RAM -> "Hold your passport against the back of the phone to restore your card to memory."
             NfcAction.SEAL_VAULT_PAYLOAD -> "Hold your passport against the back of the phone to encrypt and seal this vault."
+            NfcAction.VAULT_PASSPORT -> "Hold your passport against the back of the phone. Its chip is part of this vault's key."
         }
         _nfcScanState.value = NfcScanUiState.WaitingForCard(action, msg)
         Log.i(TAG, "NFC Reader Mode activated for action: $action")
@@ -802,6 +885,12 @@ class QVaultViewModel : ViewModel() {
         _nfcScanState.value = NfcScanUiState.Idle
         clearCardCredentials()
         pendingChallengeToSign = null
+        when (passportFor) {
+            PassportFor.UNLOCK -> cancelVoiceUnlock()
+            PassportFor.SEAL -> pendingVoiceSeal = null
+            null -> {}
+        }
+        passportFor = null
         pendingSealPayload?.outputStream?.let {
             closeQuietly(it)
             _sealState.value = SealState.Error("Export cancelled before the passport was tapped, so the exported file is empty. Delete it and export again.")
@@ -819,6 +908,9 @@ class QVaultViewModel : ViewModel() {
             reportNfcError("Enter your card details before scanning.")
             return
         }
+
+        // Taken before "Processing" replaces the waiting state, which is the only place it lives.
+        val requested = (_nfcScanState.value as? NfcScanUiState.WaitingForCard)?.action
 
         viewModelScope.launch {
             _nfcScanState.value = NfcScanUiState.Processing("Opening the chip with PACE...")
@@ -849,7 +941,7 @@ class QVaultViewModel : ViewModel() {
                 TAG,
                 "Chip opened via ${identity.protocol}, Active Authentication verified"
             )
-            handleNfcCardDetected(identity.chipId, filesDir, deviceUuid, credentials.passkey)
+            handleNfcCardDetected(identity.chipId, filesDir, deviceUuid, credentials.passkey, requested)
             clearCardCredentials()
         }
     }
@@ -867,10 +959,11 @@ class QVaultViewModel : ViewModel() {
         cardUid: ByteArray,
         filesDir: File,
         deviceUuid: String,
-        passkey: ByteArray
+        passkey: ByteArray,
+        requested: NfcAction? = null
     ) {
         val state = _nfcScanState.value
-        val effectiveAction: NfcAction? = when (state) {
+        val effectiveAction: NfcAction? = if (requested != null) requested else when (state) {
             is NfcScanUiState.WaitingForCard -> state.action
             else -> {
                 if (pendingSealPayload != null) {
@@ -885,6 +978,11 @@ class QVaultViewModel : ViewModel() {
                     null
                 }
             }
+        }
+
+        if (effectiveAction == NfcAction.VAULT_PASSPORT) {
+            onVaultPassport(cardUid)
+            return
         }
 
         if (effectiveAction == null) {
@@ -1041,6 +1139,7 @@ class QVaultViewModel : ViewModel() {
                         _nfcScanState.value = NfcScanUiState.Success("Ephemeral Response Generated! Ready for peer scan.")
                         Log.i(TAG, "Ephemeral response signed via passport NFC")
                     }
+                    NfcAction.VAULT_PASSPORT -> onVaultPassport(cardUid)   // handled above; kept exhaustive
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "NFC Operation failed", e)
