@@ -640,7 +640,7 @@ fun UnlockScreen(
                         ) {
                             Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text(if (activeVaultName != null) "Change" else "Pick .qv5", fontSize = 12.sp)
+                            Text(if (activeVaultName != null) "Change" else "Pick vault", fontSize = 12.sp)
                         }
                         if (activeVaultName != null) {
                             Spacer(modifier = Modifier.width(4.dp))
@@ -1097,7 +1097,7 @@ fun SealScreen(
                     if (card != null) {
                         onSealTextStream(secretText, os, burnAfterSeal)
                     } else if (sealedCardFp != null && civilIdSeal != null) {
-                        civilIdSeal(secretText.toByteArray(StandardCharsets.UTF_8), "text", "secret_message.qv5", os)
+                        civilIdSeal(secretText.toByteArray(StandardCharsets.UTF_8), "text", null, os)
                     } else {
                         try { os.close() } catch (_: Exception) {}
                     }
@@ -1346,7 +1346,7 @@ fun SealScreen(
                                         if (voiceFormat) {
                                             onVoiceSeal?.invoke(secretText.toByteArray(StandardCharsets.UTF_8), "text", null, format, cellCount, true, burnAfterSeal, withPassport)
                                         } else {
-                                            exportTextLauncher.launch("secret_message.qv5")
+                                            exportTextLauncher.launch(QVaultEngine.vaultFileName())
                                         }
                                     }
                                 },
@@ -1392,7 +1392,7 @@ fun SealScreen(
                             OutlinedButton(
                                 onClick = {
                                     if (secretText.isNotBlank()) {
-                                        exportTextLauncher.launch("secret_message.qv5")
+                                        exportTextLauncher.launch(QVaultEngine.vaultFileName())
                                     }
                                 },
                                 modifier = Modifier.weight(1f),
@@ -1439,7 +1439,7 @@ fun SealScreen(
                                         if (voiceFormat) {
                                             onVoiceSeal?.invoke(bytes, "file", name, format, cellCount, true, burnAfterSeal, withPassport)
                                         } else {
-                                            exportFileLauncher.launch("${name}.qv5")
+                                            exportFileLauncher.launch(QVaultEngine.vaultFileName())
                                         }
                                     },
                                     modifier = Modifier.weight(1f)
@@ -1476,7 +1476,7 @@ fun SealScreen(
                                 }
                                 OutlinedButton(
                                     onClick = {
-                                        exportFileLauncher.launch("${name}.qv5")
+                                        exportFileLauncher.launch(QVaultEngine.vaultFileName())
                                     },
                                     modifier = Modifier.weight(1f)
                                 ) {

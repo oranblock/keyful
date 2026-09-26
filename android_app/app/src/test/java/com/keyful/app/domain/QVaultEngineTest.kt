@@ -21,6 +21,29 @@ class QVaultEngineTest {
     }
 
     @Test
+    fun testSealVerifiedRoundTripAndNoFingerprints() {
+        val (_, coef) = QVaultEngine.makeCard()
+        val mk = QVaultEngine.masterKey(coef)
+        val data = "sealed and test-opened".toByteArray(StandardCharsets.UTF_8)
+        val sealed = QVaultEngine.sealVerified(data, "text", null, mk)
+        val (meta, back) = QVaultEngine.openPayload(sealed, mk)
+        assertEquals("text", meta.getString("type"))
+        assertArrayEquals(data, back)
+        val nl = sealed.indexOf('\n'.code.toByte())
+        val hdr = JSONObject(String(sealed, 0, nl, StandardCharsets.UTF_8))
+        assertFalse(hdr.has("card"))
+        assertFalse(hdr.has("key"))
+    }
+
+    @Test
+    fun testVaultFileNameIsRandomAndRevealsNothing() {
+        val names = List(50) { QVaultEngine.vaultFileName() }
+        names.forEach { assertTrue(it, Regex("vault-[a-z2-9]{6}\\.qv5").matches(it)) }
+        assertTrue("names should not repeat", names.toSet().size > 45)
+        assertTrue(Regex("vault-[a-z2-9]{6}\\.qv7").matches(QVaultEngine.vaultFileName("qv7")))
+    }
+
+    @Test
     fun testCardFromCoefDeterministic() {
         val (cardMap, coef) = QVaultEngine.makeCard()
         val cFp = QVaultEngine.cardFp(cardMap)
@@ -45,7 +68,7 @@ class QVaultEngineTest {
         val plaintext = "Top secret message from paper card: 12345! @#$ QVault".toByteArray(StandardCharsets.UTF_8)
         val origSha = sha256Hex(plaintext)
 
-        val sealed = QVaultEngine.sealPayload(plaintext, "text", null, mk, cFp)
+        val sealed = QVaultEngine.sealPayload(plaintext, "text", null, mk)
         assertNotNull(sealed)
         assertTrue(sealed.isNotEmpty())
 
@@ -64,7 +87,7 @@ class QVaultEngineTest {
         val smallData = ByteArray(77) { (it * 3 % 256).toByte() }
         val origSha = sha256Hex(smallData)
 
-        val sealed = QVaultEngine.sealPayload(smallData, "file", "small.dat", mk, cFp)
+        val sealed = QVaultEngine.sealPayload(smallData, "file", "small.dat", mk)
         val (meta, decrypted) = QVaultEngine.openPayload(sealed, mk)
 
         assertEquals("file", meta.getString("type"))
@@ -86,7 +109,7 @@ class QVaultEngineTest {
         rng.nextBytes(largeData)
         val origSha = sha256Hex(largeData)
 
-        val sealed = QVaultEngine.sealPayload(largeData, "file", "large_archive.bin", mk, cFp)
+        val sealed = QVaultEngine.sealPayload(largeData, "file", "large_archive.bin", mk)
 
         // Verify header chunks count
         val nl = sealed.indexOf('\n'.code.toByte())
@@ -109,7 +132,7 @@ class QVaultEngineTest {
         val tarBytes = "Mock tar.gz payload contents for directory backup".toByteArray(StandardCharsets.UTF_8)
         val origSha = sha256Hex(tarBytes)
 
-        val sealed = QVaultEngine.sealPayload(tarBytes, "dir", "keys_backup.tar.gz", mk, cFp)
+        val sealed = QVaultEngine.sealPayload(tarBytes, "dir", "keys_backup.tar.gz", mk)
         val (meta, decrypted) = QVaultEngine.openPayload(sealed, mk)
 
         assertEquals("dir", meta.getString("type"))
@@ -127,7 +150,7 @@ class QVaultEngineTest {
         val cFpA = QVaultEngine.cardFp(cardA)
 
         val data = "Confidential financial data".toByteArray(StandardCharsets.UTF_8)
-        val sealedA = QVaultEngine.sealPayload(data, "text", null, mkA, cFpA)
+        val sealedA = QVaultEngine.sealPayload(data, "text", null, mkA)
 
         // Attempt decrypt with wrong master key B -> must throw AEADBadTagException / error
         try {
@@ -202,7 +225,7 @@ class QVaultEngineTest {
         val cFp = QVaultEngine.cardFp(card)
 
         val data = "Payload to test integrity verification".toByteArray(StandardCharsets.UTF_8)
-        val sealed = QVaultEngine.sealPayload(data, "text", null, mk, cFp)
+        val sealed = QVaultEngine.sealPayload(data, "text", null, mk)
 
         // Truncate last 8 bytes (corrupting GCM authentication tag)
         val truncated = sealed.copyOfRange(0, sealed.size - 8)
@@ -299,7 +322,7 @@ class QVaultEngineTest {
             val data = ByteArray(size) { (it % 256).toByte() }
             val origSha = sha256Hex(data)
 
-            val sealed = QVaultEngine.sealPayload(data, "file", "boundary_$size.bin", mk, cFp)
+            val sealed = QVaultEngine.sealPayload(data, "file", "boundary_$size.bin", mk)
 
             val nl = sealed.indexOf('\n'.code.toByte())
             val hdr = JSONObject(String(sealed.copyOfRange(0, nl), StandardCharsets.UTF_8))
@@ -332,7 +355,7 @@ class QVaultEngineTest {
             val bytes = str.toByteArray(StandardCharsets.UTF_8)
             val origSha = sha256Hex(bytes)
 
-            val sealed = QVaultEngine.sealPayload(bytes, "text", null, mk, cFp)
+            val sealed = QVaultEngine.sealPayload(bytes, "text", null, mk)
             val (meta, decrypted) = QVaultEngine.openPayload(sealed, mk)
 
             assertEquals("text", meta.getString("type"))
@@ -356,8 +379,8 @@ class QVaultEngineTest {
         val dataA = ByteArray(size) { (it % 127).toByte() }
         val dataB = ByteArray(size) { ((it + 42) % 127).toByte() }
 
-        val sealedA = QVaultEngine.sealPayload(dataA, "file", "vaultA.bin", mkA, cFpA)
-        val sealedB = QVaultEngine.sealPayload(dataB, "file", "vaultB.bin", mkB, cFpB)
+        val sealedA = QVaultEngine.sealPayload(dataA, "file", "vaultA.bin", mkA)
+        val sealedB = QVaultEngine.sealPayload(dataB, "file", "vaultB.bin", mkB)
 
         fun parseVault(raw: ByteArray): Pair<ByteArray, List<ByteArray>> {
             val nl = raw.indexOf('\n'.code.toByte())
@@ -446,7 +469,7 @@ class QVaultEngineTest {
 
         val iterations = 200
         for (i in 0 until iterations) {
-            val sealed = QVaultEngine.sealPayload(payload, "text", null, mk, cFp)
+            val sealed = QVaultEngine.sealPayload(payload, "text", null, mk)
             val nl = sealed.indexOf('\n'.code.toByte())
             val hdr = JSONObject(String(sealed.copyOfRange(0, nl), StandardCharsets.UTF_8))
 

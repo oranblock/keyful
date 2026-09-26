@@ -200,8 +200,9 @@ def seal_stream(src, meta, mk, path, fp):
         buf = nxt; i += 1
     n = len(chunks)
 
+    # No card or key fingerprint in the header: a vault must not say which card opens it.
     hdr = {"magic": MAGIC, "version": VERSION, "cipher": "AES-256-GCM",
-           "kdf": "SHAKE256", "card": fp, "k": K, "key": key_fp(mk),
+           "kdf": "SHAKE256", "k": K,
            "chunks": n, "salt": base64.b64encode(salt).decode(),
            "base": base64.b64encode(base).decode()}
     aad0 = json.dumps(hdr, sort_keys=True).encode()
@@ -434,15 +435,15 @@ def main():
         fh.close()
         kind = meta["type"] + (" (gzip)" if meta["gz"] else "")
         print(f"\n  sealed {kind} -> {out}")
-        print(f"  {meta['size']:,} bytes in -> {os.path.getsize(out):,} bytes out, "
-              f"{n} chunk(s), card {h['card']}")
+        print(f"  {meta['size']:,} bytes in -> {os.path.getsize(out):,} bytes out, {n} chunk(s)")
+        print(f"  note down: it opens with card {card_fp(card)} (the file does not say)")
 
     elif cmd == "decode":
         path = args[1] if len(args) > 1 else "vault.qv5"
         if not os.path.exists(path):
             sys.exit(f"  file not found: {path}")
         h = read_hdr(path)
-        print(f"  card {h['card']}, {h['cipher']}\n")
+        print(f"  {h.get('cipher', 'AES-256-GCM')}" + (f", card {h['card']}" if "card" in h else "") + "\n")
         while True:
             mk = ask(fresh_challenge(avoid=avoid), echo)
             if mk is None:
@@ -456,7 +457,7 @@ def main():
                 print("    The check cells agreed, so these 15 are self-consistent.")
                 print("    That means this card is not the one that sealed the vault,")
                 print("    or two cells were swapped. Compare the card fingerprint:")
-                print(f"    vault was sealed with card {h['card']}")
+                print(f"    vault was sealed with card {h.get('card', '(not recorded)')}")
             else:
                 try:
                     sink = io.BytesIO()
@@ -480,7 +481,7 @@ def main():
                     break
                 except Exception as e:
                     if "InvalidTag" in type(e).__name__:
-                        print(f"\n  DECRYPTION FAILED - wrong key or corrupt ciphertext: {type(e).__name__}")
+                        print(f"\n  DECRYPTION FAILED - wrong card, misread cell, or damaged file: {type(e).__name__}")
                     else:
                         print(f"\n  PAYLOAD ERROR: {type(e).__name__}: {e}")
                     break
@@ -543,7 +544,7 @@ def main():
         if not os.path.exists(path):
             sys.exit(f"  file not found: {path}")
         h = read_hdr(path)
-        print(f"  card   : {h.get('card', 'unknown')}\n  cipher : {h.get('cipher', 'unknown')}\n"
+        print(f"  card   : {h.get('card', 'not recorded (newer vaults do not say)')}\n  cipher : {h.get('cipher', 'unknown')}\n"
               f"  needs  : any {h.get('k', K)} cells, chosen fresh at decode time")
 
     else:

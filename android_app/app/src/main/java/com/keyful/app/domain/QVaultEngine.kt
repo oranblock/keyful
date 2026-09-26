@@ -240,7 +240,6 @@ object QVaultEngine {
         metaType: String,
         metaName: String?,
         mk: ByteArray,
-        cardFp: String,
         magic: String = MAGIC,
         extraHeader: JSONObject? = null
     ): ByteArray {
@@ -282,9 +281,7 @@ object QVaultEngine {
         hdr.put("version", VERSION)
         hdr.put("cipher", "AES-256-GCM")
         hdr.put("kdf", "SHAKE256")
-        hdr.put("card", cardFp)
         hdr.put("k", K)
-        hdr.put("key", keyFp(mk))
         hdr.put("chunks", n)
         hdr.put("salt", Base64.getEncoder().encodeToString(salt))
         hdr.put("base", Base64.getEncoder().encodeToString(base))
@@ -322,6 +319,29 @@ object QVaultEngine {
             key.fill(0.toByte())
         }
     }
+
+    /**
+     * Seals, then opens the result and compares it byte for byte, so a file that would not
+     * open is never handed out.
+     */
+    fun sealVerified(payloadBytes: ByteArray, metaType: String, metaName: String?, mk: ByteArray): ByteArray {
+        val sealed = sealPayload(payloadBytes, metaType, metaName, mk)
+        val (meta, back) = openPayload(sealed, mk)
+        try {
+            check(back.contentEquals(payloadBytes) && meta.optString("type") == metaType) {
+                "Self-test failed: the sealed file did not open back to the same data. Nothing was saved."
+            }
+        } finally {
+            back.fill(0)
+        }
+        return sealed
+    }
+
+    private const val NAME_CHARS = "abcdefghjkmnpqrstuvwxyz23456789"
+
+    /** A random vault file name: the name must not reveal what is inside or which card opens it. */
+    fun vaultFileName(ext: String = "qv5"): String =
+        "vault-" + String(CharArray(6) { NAME_CHARS[rng.nextInt(NAME_CHARS.length)] }) + "." + ext
 
     fun openPayload(vaultBytes: ByteArray, mk: ByteArray): Pair<JSONObject, ByteArray> {
         val newlineIdx = vaultBytes.indexOf('\n'.code.toByte())

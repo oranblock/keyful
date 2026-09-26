@@ -152,11 +152,37 @@ object VoiceVault {
             passportId?.let { extra.put("passport", passportCheck(it)) }
             val key = vaultKey(magic, cellSecret, voiceSecret, passportId)
             try {
-                return QVaultEngine.sealPayload(payload, metaType, metaName, key, card.fingerprint, magic, extra)
+                return QVaultEngine.sealPayload(payload, metaType, metaName, key, magic, extra)
             } finally { key.fill(0) }
         } finally {
             cellSecret.fill(0); voiceSecret.fill(0)
         }
+    }
+
+    /**
+     * Seals, then opens the result once with the same card, voice, passphrase and passport and
+     * compares the payload, so a vault is only handed out after it has been opened.
+     */
+    fun sealVerified(
+        payload: ByteArray, metaType: String, metaName: String?, card: VaultCard,
+        magic: String, cells: Int, voice: FloatArray, pass: CharArray, passportId: ByteArray? = null
+    ): ByteArray {
+        val sealed = seal(payload, metaType, metaName, card, magic, cells, voice, pass, passportId)
+        val p = parse(sealed) ?: error("Self-test failed: the sealed file is not a $magic vault.")
+        val typed = challenge(p, 0).map { card.cells[it] ?: error("Self-test failed: the card has no cell $it.") }
+        val cs = openCells(p, 0, typed) ?: error("Self-test failed: the card's cells did not open the file.")
+        try {
+            val o = open(sealed, p, cs, voice, pass, passportId)
+                ?: error("Self-test failed: the voice lock did not open.")
+            try {
+                check(o.payload.contentEquals(payload)) { "Self-test failed: the opened data did not match." }
+            } finally {
+                o.payload.fill(0)
+            }
+        } finally {
+            cs.fill(0)
+        }
+        return sealed
     }
 
     /** null = not a QV6/QV7 file (e.g. QV5). Throws if it claims QV6/QV7 but is damaged. */

@@ -19,6 +19,11 @@ Your secret is a degree-12 polynomial over GF(2^20) — a **260-bit key**. The p
 - **Seal:** derive the master key from the card, encrypt the payload with AES-256-GCM (chunked, per-chunk authenticated).
 - **Unseal:** the app asks for 15 random cells; **any 13 correct cells** rebuild the exact same key. The extra 2 catch typos before decrypting.
 - **Damage tolerance:** any 13 of 140 work, so you can lose or smudge up to 127 cells and still recover.
+- **Tested before it is handed out:** every new vault is opened once, right after sealing, before it is saved or exported.
+- **The file says nothing about you:**
+  - New vaults get random names (`vault-x7k2mp.qv5`).
+  - Their header carries no card or key fingerprint, so two files cannot be linked to the same card.
+  - The app shows which card opens a vault once, when you seal it. **Write down which card goes with which file, somewhere outside the vault.**
 
 ### Vault types
 

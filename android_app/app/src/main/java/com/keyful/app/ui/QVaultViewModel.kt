@@ -126,10 +126,11 @@ class QVaultViewModel : ViewModel() {
         val cells: Int,
         val toSaf: Boolean,
         val burn: Boolean,
-        val passport: Boolean
+        val passport: Boolean,
+        val cardFp: String
     ) {
-        val fileName: String
-            get() = (if (metaType == "text") "secret_message" else metaName ?: "file") + "." + format.lowercase()
+        // Random, fixed once: the name must not reveal what is inside.
+        val fileName: String = QVaultEngine.vaultFileName(format.lowercase())
     }
 
     private val _voiceSealRequest = MutableStateFlow<VoiceSealRequest?>(null)
@@ -479,7 +480,7 @@ class QVaultViewModel : ViewModel() {
             _sealState.value = SealState.Error("No card in memory. Generate or restore a card, then seal again.")
             return
         }
-        val req = VoiceSealRequest(bytes, metaType, metaName, format, cells, toSaf, burn, passport)
+        val req = VoiceSealRequest(bytes, metaType, metaName, format, cells, toSaf, burn, passport, _card.value!!.fingerprint)
         voicePassportId?.fill(0)
         voicePassportId = null
         if (passport) {
@@ -541,12 +542,13 @@ class QVaultViewModel : ViewModel() {
     suspend fun sealWithVoice(voice: FloatArray, pass: CharArray, vaultsDir: File): Boolean {
         val req = _voiceSealRequest.value ?: return false
         val currentCard = _card.value ?: return false
+        if (currentCard.fingerprint != req.cardFp) return false
         _sealState.value = SealState.Sealing
         val pid = voicePassportId
         if (req.passport && pid == null) return false
         val sealed = try {
             withContext(Dispatchers.Default) {
-                VoiceVault.seal(req.bytes, req.metaType, req.metaName, currentCard, req.format, req.cells, voice, pass, pid)
+                VoiceVault.sealVerified(req.bytes, req.metaType, req.metaName, currentCard, req.format, req.cells, voice, pass, pid)
             }
         } catch (e: Exception) {
             _sealState.value = SealState.Error("Sealing failed: ${e.message}")
@@ -591,6 +593,11 @@ class QVaultViewModel : ViewModel() {
         _sealState.value = SealState.Error("Export cancelled: no file was written.")
     }
 
+    /** What to write down with the file: the vault itself does not say which card opens it. */
+    private fun sealedMessage(what: String, cardFp: String, burned: Boolean) =
+        "$what sealed and test-opened. Note down: it opens with card $cardFp (the file doesn't say)." +
+            if (burned) " Card burned from memory." else ""
+
     private fun finishVoiceSeal(req: VoiceSealRequest, where: String, size: Int) {
         if (req.burn) burnCard()
         val factors = "${req.cells} cells" + (if (req.passport) " + passport" else "") + " + voice" +
@@ -598,7 +605,7 @@ class QVaultViewModel : ViewModel() {
         _sealState.value = SealState.Success(
             fileName = where,
             size = size,
-            message = "${req.format} vault sealed ($factors)" + if (req.burn) ". Card burned from memory." else ""
+            message = sealedMessage("${req.format} vault ($factors)", req.cardFp, req.burn)
         )
         Log.i(TAG, "${req.format} vault sealed: $factors")
     }
@@ -618,11 +625,11 @@ class QVaultViewModel : ViewModel() {
                 val mk = QVaultEngine.masterKey(currentCard.coef)
                 val bytes = text.toByteArray(StandardCharsets.UTF_8)
                 val sealed = withContext(Dispatchers.Default) {
-                    QVaultEngine.sealPayload(bytes, "text", null, mk, currentCard.fingerprint)
+                    QVaultEngine.sealVerified(bytes, "text", null, mk)
                 }
 
                 if (!destFolder.exists()) destFolder.mkdirs()
-                val outFile = File(destFolder, "secret_message.qv5")
+                val outFile = File(destFolder, QVaultEngine.vaultFileName())
                 outFile.writeBytes(sealed)
 
                 if (burnAfterSeal) {
@@ -632,11 +639,7 @@ class QVaultViewModel : ViewModel() {
                 _sealState.value = SealState.Success(
                     fileName = outFile.absolutePath,
                     size = sealed.size,
-                    message = if (burnAfterSeal) {
-                        "Message sealed to app vault and card burned from memory!"
-                    } else {
-                        "Message sealed to app vault: ${outFile.name}"
-                    }
+                    message = sealedMessage("Message", currentCard.fingerprint, burnAfterSeal)
                 )
             } catch (e: Exception) {
                 _sealState.value = SealState.Error("Sealing failed: ${e.message}")
@@ -670,7 +673,7 @@ class QVaultViewModel : ViewModel() {
                 val mk = QVaultEngine.masterKey(currentCard.coef)
                 val bytes = text.toByteArray(StandardCharsets.UTF_8)
                 val sealed = withContext(Dispatchers.Default) {
-                    QVaultEngine.sealPayload(bytes, "text", null, mk, currentCard.fingerprint)
+                    QVaultEngine.sealVerified(bytes, "text", null, mk)
                 }
                 withContext(Dispatchers.IO) {
                     outputStream.use { it.write(sealed) }
@@ -683,11 +686,7 @@ class QVaultViewModel : ViewModel() {
                 _sealState.value = SealState.Success(
                     fileName = "Exported via SAF",
                     size = sealed.size,
-                    message = if (burnAfterSeal) {
-                        "Vault exported via SAF and card burned from memory!"
-                    } else {
-                        "Vault exported via SAF successfully"
-                    }
+                    message = sealedMessage("Message", currentCard.fingerprint, burnAfterSeal)
                 )
             } catch (e: Exception) {
                 closeQuietly(outputStream)
@@ -704,11 +703,11 @@ class QVaultViewModel : ViewModel() {
             try {
                 val mk = QVaultEngine.masterKey(currentCard.coef)
                 val sealed = withContext(Dispatchers.Default) {
-                    QVaultEngine.sealPayload(fileBytes, "file", origName, mk, currentCard.fingerprint)
+                    QVaultEngine.sealVerified(fileBytes, "file", origName, mk)
                 }
 
                 if (!destFolder.exists()) destFolder.mkdirs()
-                val outFile = File(destFolder, "${origName}.qv5")
+                val outFile = File(destFolder, QVaultEngine.vaultFileName())
                 outFile.writeBytes(sealed)
 
                 if (burnAfterSeal) {
@@ -718,11 +717,7 @@ class QVaultViewModel : ViewModel() {
                 _sealState.value = SealState.Success(
                     fileName = outFile.absolutePath,
                     size = sealed.size,
-                    message = if (burnAfterSeal) {
-                        "File sealed to app vault and card burned from memory!"
-                    } else {
-                        "File sealed to app vault: ${outFile.name}"
-                    }
+                    message = sealedMessage("File", currentCard.fingerprint, burnAfterSeal)
                 )
             } catch (e: Exception) {
                 _sealState.value = SealState.Error("Sealing failed: ${e.message}")
@@ -743,7 +738,7 @@ class QVaultViewModel : ViewModel() {
             try {
                 val mk = QVaultEngine.masterKey(currentCard.coef)
                 val sealed = withContext(Dispatchers.Default) {
-                    QVaultEngine.sealPayload(fileBytes, "file", origName, mk, currentCard.fingerprint)
+                    QVaultEngine.sealVerified(fileBytes, "file", origName, mk)
                 }
                 withContext(Dispatchers.IO) {
                     outputStream.use { it.write(sealed) }
@@ -754,13 +749,9 @@ class QVaultViewModel : ViewModel() {
                 }
 
                 _sealState.value = SealState.Success(
-                    fileName = "Exported via SAF ($origName.qv5)",
+                    fileName = "Exported via SAF",
                     size = sealed.size,
-                    message = if (burnAfterSeal) {
-                        "File vault exported via SAF and card burned from memory!"
-                    } else {
-                        "File vault exported via SAF successfully"
-                    }
+                    message = sealedMessage("File", currentCard.fingerprint, burnAfterSeal)
                 )
             } catch (e: Exception) {
                 closeQuietly(outputStream)
@@ -1048,23 +1039,18 @@ class QVaultViewModel : ViewModel() {
                         }
                         val mk = QVaultEngine.masterKey(coef)
                         val sealed = withContext(Dispatchers.Default) {
-                            QVaultEngine.sealPayload(payloadInfo.bytes, payloadInfo.metaType, payloadInfo.metaName, mk, container.cardFp)
+                            QVaultEngine.sealVerified(payloadInfo.bytes, payloadInfo.metaType, payloadInfo.metaName, mk)
                         }
                         val finalPath: String
                         if (payloadInfo.outputStream != null) {
                             withContext(Dispatchers.IO) {
                                 payloadInfo.outputStream.use { it.write(sealed) }
                             }
-                            finalPath = payloadInfo.metaName ?: "Exported via SAF"
+                            finalPath = "Exported via SAF"
                         } else {
                             val dest = payloadInfo.destFolder ?: filesDir
                             if (!dest.exists()) dest.mkdirs()
-                            val fname = if (payloadInfo.metaType == "text") {
-                                "secret_message.qv5"
-                            } else {
-                                "${payloadInfo.metaName ?: "file"}.qv5"
-                            }
-                            val outFile = File(dest, fname)
+                            val outFile = File(dest, QVaultEngine.vaultFileName())
                             outFile.writeBytes(sealed)
                             finalPath = outFile.absolutePath
                         }
@@ -1072,7 +1058,7 @@ class QVaultViewModel : ViewModel() {
                         _sealState.value = SealState.Success(
                             fileName = finalPath,
                             size = sealed.size,
-                            message = "Vault encrypted & sealed using your passport chip!"
+                            message = sealedMessage("Vault (with your passport)", container.cardFp, false)
                         )
                         _nfcScanState.value = NfcScanUiState.Success("Vault created and sealed with your passport!")
                         Log.i(TAG, "Payload sealed using passport NFC")

@@ -43,7 +43,7 @@ class VoiceVaultTest {
         assertEquals(VoiceVault.QV7, p.magic)
         assertTrue(p.withPass)
         assertEquals(3, p.cells)
-        assertEquals(card.fingerprint, p.cardFp)
+        assertNull("the header must not say which card opens it", p.cardFp)
         val o = VoiceVault.open(qv7, p, cellSecret(p, 5), voice, pass)
         assertNotNull(o)
         assertArrayEquals(secret, o!!.payload)
@@ -160,8 +160,26 @@ class VoiceVaultTest {
         assertNotNull(VoiceVault.open(qv6, p, cellSecret(p, 0), voice, CharArray(0), passportA))
     }
 
+    @Test fun headerCarriesNoCardOrKeyFingerprint() {
+        for (v in listOf(qv7, qv6, QVaultEngine.sealPayload(secret, "text", null, QVaultEngine.masterKey(card.coef)))) {
+            val nl = v.indexOf('\n'.code.toByte())
+            val hdr = org.json.JSONObject(String(v, 0, nl, StandardCharsets.UTF_8))
+            assertFalse("card fingerprint in header", hdr.has("card"))
+            assertFalse("key fingerprint in header", hdr.has("key"))
+        }
+    }
+
+    @Test fun sealVerifiedHandsOutOnlyAVaultThatOpens() {
+        val v = VoiceVault.sealVerified(secret, "file", "a.txt", card, VoiceVault.QV7, 4, voice, pass, passportA)
+        val p = VoiceVault.parse(v)!!
+        val o = VoiceVault.open(v, p, cellSecret(p, 3), voice, pass, passportA)
+        assertNotNull(o)
+        assertArrayEquals(secret, o!!.payload)
+        assertEquals("a.txt", o.meta.getString("name"))
+    }
+
     @Test fun qv5FilesAreNotVoiceVaults() {
-        val qv5 = QVaultEngine.sealPayload(secret, "text", null, QVaultEngine.masterKey(card.coef), card.fingerprint)
+        val qv5 = QVaultEngine.sealPayload(secret, "text", null, QVaultEngine.masterKey(card.coef))
         assertNull(VoiceVault.parse(qv5))
     }
 

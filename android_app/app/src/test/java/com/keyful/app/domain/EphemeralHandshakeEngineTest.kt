@@ -23,7 +23,7 @@ class EphemeralHandshakeEngineTest {
         val expectedMasterKey = QVaultEngine.masterKey(coef)
 
         val plaintext = "Encrypted Vault Message via Zero-Input Ephemeral Handshake!".toByteArray(StandardCharsets.UTF_8)
-        val sealedVault = QVaultEngine.sealPayload(plaintext, "text", null, expectedMasterKey, cFp)
+        val sealedVault = QVaultEngine.sealPayload(plaintext, "text", null, expectedMasterKey)
 
         // 2. Verifier (Vault App) generates Ephemeral Challenge
         val (challenge, verifierPriv) = EphemeralHandshakeEngine.createChallenge(vaultFp = cFp)
