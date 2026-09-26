@@ -98,6 +98,6 @@ Every factor is key material. The voiceprint is never stored.
 
 ## Verify it yourself
 
-The reference Python implementation `qvault5.py` decrypts any `.qv5` from the paper card alone — no app, no server. Use it to confirm exactly what a vault does and does not require. It does not open `.qv6`/`.qv7`, which need the app's voice pipeline. Their construction is covered by `VoiceVaultTest` and `VoiceLockTest`.
+The reference Python implementation `qvault5.py` decrypts any `.qv5` from the paper card alone — no app, no server. Check its SHA-256 against the one in the README before typing cells into it. Use it to confirm exactly what a vault does and does not require. It does not open `.qv6`/`.qv7`, which need the app's voice pipeline. Their construction is covered by `VoiceVaultTest` and `VoiceLockTest`.
 
 No bounty is offered — this is a prototype. Credit is given for any accepted finding.

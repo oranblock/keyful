@@ -72,6 +72,19 @@ For QV6/QV7:
 
 A vault must outlive the app. The reference Python implementation (`qvault5.py`) decrypts any `.qv5` from the paper card alone — no Android, no server. If a future OS breaks the app, your data is still recoverable with ~1 file and the printed card. This applies to `.qv5` only; `.qv6`/`.qv7` need the app's voice pipeline.
 
+### Check your copy before typing cells into it
+
+Only use `qvault5.py` from this repository: a modified copy could record the cells you type. Compare its checksum with this one first:
+
+```
+$ sha256sum qvault5.py
+d43ef9653fd4d98f57daecc6b40485803b5980c245538327dd66d5dac603c1d9  qvault5.py
+```
+
+- Run it on an offline computer.
+- `card.json` and the card PDF it creates **are your key** (all 140 cells). Never share, upload or sync them.
+- `decode` never needs `card.json`, so delete it once you are done sealing.
+
 ## Build
 
 ```

@@ -156,6 +156,12 @@ def card_fp(card):
 
 
 # ---- card file --------------------------------------------------------------
+KEY_WARNING = (
+    "\n  !! card.json and the card PDF ARE your key: all 140 cells.\n"
+    "     Anyone with either file opens every vault sealed with this card.\n"
+    "     Never share, upload, sync or zip them with this script.\n"
+    "     decode never needs card.json - delete it once you are done sealing.\n")
+
 def save_card(card):
     fd = os.open(CARD_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
@@ -362,6 +368,7 @@ def make_pdf(card, path="card.pdf"):
                           f"same twice. Keep this off every screen and cloud.")
         cv.showPage()
     cv.save()
+    os.chmod(path, 0o600)   # the PDF is the key, same as card.json
     return path
 
 
@@ -408,8 +415,10 @@ def main():
         print(f"\n  card {card_fp(card)}   key {mkfp}  ->  {out}")
         print(f"  {SLIPS*CELLS} cells, any {K} reconstruct the {K*FBITS}-bit master secret")
         print(f"  possible challenges: {n:.2e}")
-        print(f"  WRITE DOWN key {mkfp} - it tells you if a card matches a vault.")
+        print(f"  WRITE DOWN card {card_fp(card)} next to each vault's file name:")
+        print("  vaults do not record which card opens them.")
         print("  Print the PDF, delete the PDF, delete card.json when done sealing.")
+        print(KEY_WARNING)
 
     elif cmd in ("encode", "seal"):
         card = load_card()
@@ -503,7 +512,7 @@ def main():
             print(f"\n  fingerprint {fp}, {len(bad)} inconsistent cells")
             if not bad:
                 if input("  save? [y/N] ").strip().lower() == "y":
-                    save_card(card); print(f"  {CARD_FILE} written")
+                    save_card(card); print(f"  {CARD_FILE} written"); print(KEY_WARNING)
                 break
             print("  mistyped:", " ".join(f"s{s}c{c}" for s, c in sorted(bad)[:10]))
             cell_in = input("  cell to fix (e.g. s1c2, or Enter to abort): ").strip().lower()
